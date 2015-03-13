@@ -3,6 +3,11 @@ Creates a 3D Model (OpenSCAD) of the PCB in a Fritzing Sketch.
 The models are meant to be used to create front plates for 3D-Printed casings. They might 
 also be used to create complete 3D-Models of a PCB - depending on the parts library used.
 
+## Note:
+This tool is quite young and I did not have a chance yet to actually print
+a case or a frontplate. Please share your experiences with me at the
+[Issues Page](https://github.com/htho/fzz2scad/issues).
+
 ## The Problem
 Fritzing does not support creating front plates for the PCBs created.
 Creating a front plate for a PCB from a sketch is almost impossible because there is no

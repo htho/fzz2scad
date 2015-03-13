@@ -64,7 +64,7 @@ include <partslib/generic/perfboardPCB_lq.scad>
 //High Quality
 module m5mmColorLEDModuleID(){led5mm_hq();}
 module m1238DBDC00_toggle_switch(){ESP10XX_hq();}
-module m20A9BBEE34_ST(){JTP_1130_stretched_hq();}
+module m20A9BBEE34_ST(){JTP_1130_hq();}
 module mRectanglePCBModuleID(width, depth){basicPCB_lq(width, depth);}// only available in lq
 module mTwoLayerRectanglePCBModuleID(width, depth){basicPCB_lq(width, depth);}// only available in lq
 
@@ -79,6 +79,6 @@ module mTwoLayerRectanglePCBModuleID(width, depth){basicPCB_lq(width, depth);}//
 //module m5mmColorLEDModuleID(){led5mm_do();}
 //module m1238DBDC00_toggle_switch(){ESP10XX_do();}
 //module m20A9BBEE34_ST(){JTP_1130_stretched_do();}
-//module mRectanglePCBModuleID(width, depth){basicPCB_do(width, depth);}// only available in lq
-//module mTwoLayerRectanglePCBModuleID(width, depth){basicPCB_do(width, depth);}// only available in lq
+//module mRectanglePCBModuleID(width, depth){basicPCB_lq(width, depth);}// only available in lq
+//module mTwoLayerRectanglePCBModuleID(width, depth){basicPCB_lq(width, depth);}// only available in lq
 
