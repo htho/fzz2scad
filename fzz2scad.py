@@ -1,6 +1,6 @@
 '''
     fzz2scad: Creates OpenSCAD 3D models of PCBs from Fritzing-Sketches.
-    
+
     Copyright (C) 2015  Hauke Thorenz <htho@thorenz.net>
 
     This program is free software: you can redistribute it and/or modify
@@ -17,231 +17,242 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''
 VERSION = 0.1
-#import statements: We use pythons included batteries!
+# import statements: We use pythons included batteries!
 import xml.etree.ElementTree as ET
 import zipfile
 import argparse
 import os
 import math
 
-#This is a blacklist for modules fzz2oscad can't handle.
-#This list is NOT for parts that don't have any models yet.
-#Missing models are simply ignored.
+# This is a blacklist for modules fzz2oscad can't handle.
+# This list is NOT for parts that don't have any models yet.
+# Missing models are simply ignored.
 moduleIdRef_blacklist = frozenset([
-"WireModuleID"
+    "WireModuleID"
 ])
 
-######################## I/O HELPER FUNCTIONS ######################## 
+
+# ####################### I/O HELPER FUNCTIONS ########################
+
+
 def printOutFile(s):
-	"""Store the given string in the buffer for output."""
-	
-	global outFileBuffer
-	outFileBuffer = outFileBuffer + s
+    """Store the given string in the buffer for output."""
+    global outFileBuffer
+    outFileBuffer = outFileBuffer + s
+
 
 def printConsole(s, minimumVerbosityLevel):
-	"""Write the given string to the console. To be printed
-	args.verbose needs to be >= minimumVerbosityLevel."""
-	
-	global args
-	if args.verbose >= minimumVerbosityLevel:
-		print(s)
+    """Write the given string to the console. To be printed
+    args.verbose needs to be >= minimumVerbosityLevel."""
+    global args
+    if args.verbose >= minimumVerbosityLevel:
+        print(s)
+
 
 def getXMLRoot(zipFile, xmlFileName):
-	"""get the xml root of the XML File in the given zip File."""
-	
-	ret = None
-	with zipfile.ZipFile(zipFile, 'r') as zf:
-		with zf.open(xmlFileName, 'r') as xf:
-			ret = ET.parse(xf)
-	return ret
+    """get the xml root of the XML File in the given zip File."""
+    ret = None
+    with zipfile.ZipFile(zipFile, 'r') as zf:
+        with zf.open(xmlFileName, 'r') as xf:
+            ret = ET.parse(xf)
+    return ret
+
 
 def getFilesThatEndWith(zipFile, endswith):
-	"""get a list of the files in the given zip file which names end with
-	the given string."""
-	
-	ret = list()
-	with zipfile.ZipFile(zipFile, 'r') as zf:
-		namelist = zf.namelist()
-		for name in namelist:
-			if name.endswith(endswith):
-				ret = ret + [name]
-	return ret
-	
-######################## CLASSES ######################## 
+    """get a list of the files in the given zip file which names end with
+    the given string."""
+    ret = list()
+    with zipfile.ZipFile(zipFile, 'r') as zf:
+        namelist = zf.namelist()
+        for name in namelist:
+            if name.endswith(endswith):
+                ret = ret + [name]
+    return ret
+
+
+# ####################### CLASSES ########################
+
+
 class Part:
-	"""A Part (e.g. Switch or LED)."""
-	
-	#static dictionary with information about the different parts.
-	#key: moduleIdRef
-	#value: dict() (see getPrototype())
-	partPrototypes = dict()	
-	
-	def __init__(self, moduleIdRef, title, partXPos, partYPos, matrix):
-		"""Create a new part instance. This Constuctor will seldom be called directly."""
-		self.moduleIdRef = moduleIdRef
-		self.title = title
-		self.partXPos = partXPos
-		self.partYPos = partYPos
-		self.matrix = matrix
-		self.module_name = "m"+moduleIdRef
-		#TODO: Use RegEx Magic instead
-		for c in self.module_name:
-			if not c in frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"):
-				self.module_name = self.module_name.replace(c, "_")
-	
-	@staticmethod
-	def getPrototype(moduleIdRef):
-		"""Get static Information about this part.
-		return dict('svgWidth':?, 'svgHeihgt':?, 'xOffset':?. 'yOffset':?)
-		svgWidth/Height: Size of the SVG that represents this parts PCB
-		footprint. Needed for rotation.
-		Offset: Position of connector0 IN the SVG
-		"""
-		if not moduleIdRef in Part.partPrototypes:
-			global inputFzzFileName
-			global xmlRoot
+    """A Part (e.g. Switch or LED)."""
 
-			Part.partPrototypes[moduleIdRef] = dict()
-			
-			fzpFileNamePath = xmlRoot.find("./instances/instance[@moduleIdRef='"+moduleIdRef+"']").attrib['path']
-			fzpRoot = getXMLRoot(inputFzzFileName, "part."+os.path.basename(fzpFileNamePath))
-			
-			connector0svgId = fzpRoot.find("./connectors/connector[@id='connector0']/views/pcbView/p[@layer='copper0']").attrib['svgId']
-			
-			svgFileName = (fzpRoot.find("./views/pcbView/layers").attrib['image']).replace("/", ".")
-			svgRoot = getXMLRoot(inputFzzFileName, "svg."+svgFileName)
-			
-			viewBoxValues = svgRoot.find(".").attrib['viewBox'].split()
-		
-			viewBoxWidthOfAUnit = Dimension(svgRoot.find(".").attrib['width']) / Dimension(viewBoxValues[2])
-			viewBoxHeightOfAUnit = Dimension(svgRoot.find(".").attrib['height']) / Dimension(viewBoxValues[3])
-						
-			svgConnector0Element = svgRoot.find(".//*[@id='"+connector0svgId+"']")
-			
-			#width and height of the svg (important for correct rotations)
-			Part.partPrototypes[moduleIdRef]['svgWidth'] = Dimension(svgRoot.find(".").attrib['width'])
-			Part.partPrototypes[moduleIdRef]['svgHeight'] = Dimension(svgRoot.find(".").attrib['height'])
-			
-			#position of connector0 IN the svg.
-			Part.partPrototypes[moduleIdRef]['xOffset'] =  Dimension(svgConnector0Element.attrib['cx']) * viewBoxWidthOfAUnit
-			Part.partPrototypes[moduleIdRef]['yOffset'] =  Dimension(svgConnector0Element.attrib['cy']) * viewBoxHeightOfAUnit
-			
-			#negating on purpose! We need to transform the coordinate system from positive y to negative y:
-			Part.partPrototypes[moduleIdRef]['yOffset'] = -Part.partPrototypes[moduleIdRef]['yOffset']
-		
-		return Part.partPrototypes[moduleIdRef]
-	
-	@staticmethod
-	def buildFromInstanceXmlElement(instanceXmlElement):
-		"""Create a Part from the given instance Element in the tree of
-		of an .fz file."""
+    # static dictionary with information about the different parts.
+    # key: moduleIdRef
+    # value: dict() (see getPrototype())
+    partPrototypes = dict()
 
-		moduleIdRef = instanceXmlElement.attrib['moduleIdRef']
-		
-		partXPos = Dimension(instanceXmlElement.find("./views/pcbView/geometry").attrib['x'])
-		partYPos = Dimension(instanceXmlElement.find("./views/pcbView/geometry").attrib['y'])
-				
-		#negating on purpose! We need to transform the coordinate system from positive y to negative y:
-		partYPos = -partYPos
-		return Part(
-			moduleIdRef,
-			instanceXmlElement.find("./title").text,
-			partXPos,
-			partYPos,
-			transformElement2MatrixString(instanceXmlElement.find("./views/pcbView/geometry/transform"))
-			)
+    def __init__(self, moduleIdRef, title, partXPos, partYPos, matrix):
+        """Create a new part instance. This Constuctor will seldom be
+        called directly."""
 
-	def asScad(self):
-		"""get a string representation to be used in an scad file."""
-		proto = Part.getPrototype(self.moduleIdRef)
-		data = dict()
-		
-		data['svgWidth'] = proto['svgWidth'].asMm()
-		data['svgHeight'] = proto['svgHeight'].asMm()
-		
-		data['xOffset'] = proto['xOffset'].asMm()
-		data['yOffset'] = proto['yOffset'].asMm()
-		
-		data['module_name'] = self.module_name
-		data['moduleIdRef'] = self.moduleIdRef
-		data['title'] = self.title
-		
-		data['module'] = self.module_name
-		data['partXPos'] = self.partXPos.asMm()
-		data['partYPos'] = self.partYPos.asMm()
-		data['svgZ'] = 1.0 #How tall should the groundplate be?
+        self.moduleIdRef = moduleIdRef
+        self.title = title
+        self.partXPos = partXPos
+        self.partYPos = partYPos
+        self.matrix = matrix
+        self.module_name = "m"+moduleIdRef
 
-		if self.matrix is not None:
-			data['multmatrix'] = "multmatrix(m="+self.matrix+") //rotation and translation\n"
-		else:
-			data['multmatrix'] = ""
-		
-		global args
-		if args.show_groundplate:
-			data['groundplate'] = "%translate([{svgWidth}/2,-{svgHeight}/2,-{svgZ}/2]) cube([{svgWidth},{svgHeight},{svgZ}],true);".format(**data)
-		else: 
-			data['groundplate'] = ""
-			
-		return"""
+        # TODO: Use RegEx Magic instead
+        for c in self.module_name:
+            if c not in frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"):
+                self.module_name = self.module_name.replace(c, "_")
+
+    @staticmethod
+    def getPrototype(moduleIdRef):
+        """Get static Information about this part.
+        return dict('svgWidth':?, 'svgHeihgt':?, 'xOffset':?. 'yOffset':?)
+        svgWidth/Height: Size of the SVG that represents this parts PCB
+        footprint. Needed for rotation.
+        Offset: Position of connector0 IN the SVG
+        """
+        if moduleIdRef not in Part.partPrototypes:
+            global inputFzzFileName
+            global xmlRoot
+
+            Part.partPrototypes[moduleIdRef] = dict()
+
+            fzpFileNamePath = xmlRoot.find("./instances/instance[@moduleIdRef='"+moduleIdRef+"']").attrib['path']
+            fzpRoot = getXMLRoot(inputFzzFileName, "part."+os.path.basename(fzpFileNamePath))
+
+            connector0svgId = fzpRoot.find("./connectors/connector[@id='connector0']/views/pcbView/p[@layer='copper0']").attrib['svgId']
+
+            svgFileName = (fzpRoot.find("./views/pcbView/layers").attrib['image']).replace("/", ".")
+            svgRoot = getXMLRoot(inputFzzFileName, "svg."+svgFileName)
+
+            viewBoxValues = svgRoot.find(".").attrib['viewBox'].split()
+
+            viewBoxWidthOfAUnit = Dimension(svgRoot.find(".").attrib['width']) / Dimension(viewBoxValues[2])
+            viewBoxHeightOfAUnit = Dimension(svgRoot.find(".").attrib['height']) / Dimension(viewBoxValues[3])
+
+            svgConnector0Element = svgRoot.find(".//*[@id='"+connector0svgId+"']")
+
+            # width and height of the svg (important for correct rotations)
+            Part.partPrototypes[moduleIdRef]['svgWidth'] = Dimension(svgRoot.find(".").attrib['width'])
+            Part.partPrototypes[moduleIdRef]['svgHeight'] = Dimension(svgRoot.find(".").attrib['height'])
+
+            # position of connector0 IN the svg.
+            Part.partPrototypes[moduleIdRef]['xOffset'] = Dimension(svgConnector0Element.attrib['cx']) * viewBoxWidthOfAUnit
+            Part.partPrototypes[moduleIdRef]['yOffset'] = Dimension(svgConnector0Element.attrib['cy']) * viewBoxHeightOfAUnit
+
+            # negating on purpose! We need to transform the coordinate system from positive y to negative y:
+            Part.partPrototypes[moduleIdRef]['yOffset'] = -Part.partPrototypes[moduleIdRef]['yOffset']
+
+        return Part.partPrototypes[moduleIdRef]
+
+    @staticmethod
+    def buildFromInstanceXmlElement(instanceXmlElement):
+        """Create a Part from the given instance Element in the tree of
+        of an .fz file."""
+
+        moduleIdRef = instanceXmlElement.attrib['moduleIdRef']
+
+        partXPos = Dimension(instanceXmlElement.find("./views/pcbView/geometry").attrib['x'])
+        partYPos = Dimension(instanceXmlElement.find("./views/pcbView/geometry").attrib['y'])
+
+        # negating on purpose! We need to transform the coordinate system
+        # from positive y to negative y:
+        partYPos = -partYPos
+        return Part(
+            moduleIdRef,
+            instanceXmlElement.find("./title").text,
+            partXPos,
+            partYPos,
+            transformElement2MatrixString(instanceXmlElement.find("./views/pcbView/geometry/transform"))
+            )
+
+    def asScad(self):
+        """get a string representation to be used in an scad file."""
+        proto = Part.getPrototype(self.moduleIdRef)
+        data = dict()
+
+        data['svgWidth'] = proto['svgWidth'].asMm()
+        data['svgHeight'] = proto['svgHeight'].asMm()
+
+        data['xOffset'] = proto['xOffset'].asMm()
+        data['yOffset'] = proto['yOffset'].asMm()
+
+        data['module_name'] = self.module_name
+        data['moduleIdRef'] = self.moduleIdRef
+        data['title'] = self.title
+
+        data['module'] = self.module_name
+        data['partXPos'] = self.partXPos.asMm()
+        data['partYPos'] = self.partYPos.asMm()
+        data['svgZ'] = 1.0  # How tall should the groundplate be?
+
+        if self.matrix is not None:
+            data['multmatrix'] = "multmatrix(m="+self.matrix+") //rotation and translation\n"
+        else:
+            data['multmatrix'] = ""
+
+        global args
+        if args.show_groundplate:
+            data['groundplate'] = "%translate([{svgWidth}/2,-{svgHeight}/2,-{svgZ}/2]) cube([{svgWidth},{svgHeight},{svgZ}],true);".format(**data)
+        else:
+            data['groundplate'] = ""
+
+        return"""
 // Part: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}'
 translate([{partXPos},{partYPos},0]) //position
 {multmatrix}
 {{
-	translate([{xOffset},{yOffset},0]) {module}();
-	{groundplate}
+    translate([{xOffset},{yOffset},0]) {module}();
+    {groundplate}
 }}\n\n""".format(**data)
 
-	def __str__(self):
-		return "Part: module_name: '{}', moduleIdRef: '{}', title: '{}', partXPos: '{}mm', partYPos: '{}mm', matrix: '{}'".format(self.module_name, self.moduleIdRef, self.title, self.partXPos.asMm(), self.partYPos.asMm(), self.matrix)
-
+    def __str__(self):
+        return "Part: module_name: '{}', moduleIdRef: '{}', title: '{}', partXPos: '{}mm', partYPos: '{}mm', matrix: '{}'".format(self.module_name, self.moduleIdRef, self.title, self.partXPos.asMm(), self.partYPos.asMm(), self.matrix)
 
 
 class PCB(Part):
-	"""A Part representing a PCB with the given dimensions."""
-	def __init__(self, moduleIdRef, title, partXPos, partYPos,  matrix, width, depth):
-		super().__init__(moduleIdRef, title, partXPos, partYPos, matrix)
-		self.width = width
-		self.depth = depth
-	
-	@staticmethod
-	def buildFromInstanceXmlElement(instanceXmlElement):
-		"""Create this PCB from the given instanceXmlElement """
-		global xmlRoot
-		title = instanceXmlElement.find("./title").text
-		boardXmlElement = xmlRoot.find("./boards/board[@instance='"+title+"']")
-		
-		PCBXPos =	Dimension(instanceXmlElement.find("./views/pcbView/geometry").attrib['x'])
-		PCBYPos =	Dimension(instanceXmlElement.find("./views/pcbView/geometry").attrib['y'])
-		#negating on purpose! We need to transform the coordinate system from positive y to negative y:
-		PCBYPos = -PCBYPos
-		return PCB(
-			instanceXmlElement.attrib['moduleIdRef'],
-			title,
-			PCBXPos,
-			PCBYPos,
-			transformElement2MatrixString(instanceXmlElement.find("./views/pcbView/geometry/transform")),
-			Dimension(boardXmlElement.attrib['width']),
-			Dimension(boardXmlElement.attrib['height'])
-		)
+    """A Part representing a PCB with the given dimensions."""
+    def __init__(self, moduleIdRef, title, partXPos, partYPos,  matrix, width, depth):
+        super().__init__(moduleIdRef, title, partXPos, partYPos, matrix)
+        self.width = width
+        self.depth = depth
 
-	def asScad(self):
-		"""get a string representation to be used in an scad file."""
-		data = dict()
-		data['module_name'] = self.module_name
-		data['moduleIdRef'] = self.moduleIdRef
-		data['title'] = self.title
-		data['module'] = self.module_name
-		data['partXPos'] = str(self.partXPos.asMm())
-		data['partYPos'] = str(self.partYPos.asMm())
-		data['width'] = str(self.width.asMm())
-		data['depth'] = str(self.depth.asMm())
+    @staticmethod
+    def buildFromInstanceXmlElement(instanceXmlElement):
+        """Create this PCB from the given instanceXmlElement """
+        global xmlRoot
+        title = instanceXmlElement.find("./title").text
+        boardXmlElement = xmlRoot.find("./boards/board[@instance='"+title+"']")
 
-		if self.matrix is not None:
-			data['multmatrix'] = "multmatrix(m="+self.matrix+") //rotation and translation\n"
-		else:
-			data['multmatrix'] = ""
-			
-		return """
+        PCBXPos = Dimension(instanceXmlElement.find("./views/pcbView/geometry").attrib['x'])
+        PCBYPos = Dimension(instanceXmlElement.find("./views/pcbView/geometry").attrib['y'])
+
+        # negating on purpose! We need to transform the coordinate system
+        # from positive y to negative y:
+        PCBYPos = -PCBYPos
+
+        return PCB(
+            instanceXmlElement.attrib['moduleIdRef'],
+            title,
+            PCBXPos,
+            PCBYPos,
+            transformElement2MatrixString(instanceXmlElement.find("./views/pcbView/geometry/transform")),
+            Dimension(boardXmlElement.attrib['width']),
+            Dimension(boardXmlElement.attrib['height'])
+        )
+
+    def asScad(self):
+        """get a string representation to be used in an scad file."""
+        data = dict()
+        data['module_name'] = self.module_name
+        data['moduleIdRef'] = self.moduleIdRef
+        data['title'] = self.title
+        data['module'] = self.module_name
+        data['partXPos'] = str(self.partXPos.asMm())
+        data['partYPos'] = str(self.partYPos.asMm())
+        data['width'] = str(self.width.asMm())
+        data['depth'] = str(self.depth.asMm())
+
+        if self.matrix is not None:
+            data['multmatrix'] = "multmatrix(m="+self.matrix+") //rotation and translation\n"
+        else:
+            data['multmatrix'] = ""
+
+        return """
 // PCB: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}'
 translate([{partXPos},{partYPos},0]) //position
 {multmatrix}
@@ -249,178 +260,176 @@ translate([{partXPos},{partYPos},0]) //position
 {module}({width},{depth});
 }}\n\n""".format(**data)
 
-	
-	def __str__(self):
-		return "PCB: module_name: '{}', moduleIdRef: '{}', title: '{}', PCBXPos: '{}mm', PCBYPos: '{}mm', matrix: '{}', width: '{}mm', depth: '{}mm'".format(self.module_name, self.moduleIdRef, self.title, self.partXPos.asMm(), self.partYPos.asMm(), self.matrix, self.width.asMm(), self.depth.asMm())
+    def __str__(self):
+        return "PCB: module_name: '{}', moduleIdRef: '{}', title: '{}', PCBXPos: '{}mm', PCBYPos: '{}mm', matrix: '{}', width: '{}mm', depth: '{}mm'".format(self.module_name, self.moduleIdRef, self.title, self.partXPos.asMm(), self.partYPos.asMm(), self.matrix, self.width.asMm(), self.depth.asMm())
+
 
 class Dimension:
-	"""A Part representing a PCB with the given dimensions."""
-	unit_conversion_table = dict({ #base: in
-		'pxI':72, #(1/90 inch isIllustrator == true)
-		'px':90, #(1/72 inch == 0,0138in == 0,3527mm)
-		'pt':72, #(1/72 inch == 0,0138in == 0,3527mm)
-		'pc':6,
-		'mm':25.4,
-		'cm':2.54,
-		'in':1,
-		'mil':1000		
-	})
-	
-	#unit_conversion_table = dict({ #base: px
-	#	'px':1, #(1/90 inch)
-	#	'cm': (2.54 / 90),
-	#	'mm': (25.4 / 90),
-	#	'in': (1.0 / 90),
-	#})
-	
-	
-	def __init__(self, inputStringOrValue, unit="", isIllustrator=False):
-		
-		if type(inputStringOrValue) is str:
+    """A dimension. Unit conversion included."""
+    unit_conversion_table = dict({
+        'pxI': 72,
+        'px': 90,
+        'pt': 72,
+        'pc': 6,
+        'mm': 25.4,
+        'cm': 2.54,
+        'in': 1,
+        'mil': 1000
+    })
 
-			#split the input string into value and unit
-			unitFromInput = ""
-			value = inputStringOrValue
+    def __init__(self, inputStringOrValue, unit="", isIllustrator=False):
+        """Create a new  Dimension. Unit us either supplied in the input
+        string or suplied with the unit variable."""
+        if type(inputStringOrValue) is str:
 
-			while not value[-1].isdigit():
-				unitFromInput = value[-1] + unitFromInput
-				value = value[:-1]
-			
-			if unit != "" and unit != unitFromInput:
-				raise ValueError("Can't interpret input! The string has the unit '{}' but the unit given is '{}'.".format(unitFromInput, unit))
-			
-			unit = unitFromInput
-		else:
-			value = inputStringOrValue
-			
-		if unit == "":
-			unit = "px"
-		if isIllustrator:
-			if unit == "px":
-				unit = unit+"I"
-			else:
-				raise ValueError("Only the unit 'px' can have isIllustrator==true, '{}' dont.".format(unit))	
-		
-		if unit in Dimension.unit_conversion_table:
-			value = float(value) / Dimension.unit_conversion_table[unit]
-		else:
-			raise ValueError("The unit '{}' is not known!".format(unit))
-		
-		self.isIllustrator = isIllustrator
-		self.value = value	
-		
-	def getAs(self, unit):
-		if unit in Dimension.unit_conversion_table:
-			if Dimension.unit_conversion_table[unit] is int:
-				return math.fsum([self.value] * Dimension.unit_conversion_table[unit])
-			else:
-				return self.value * Dimension.unit_conversion_table[unit]
-		else:
-			raise ValueError("The unit '{}' is not known!".format(unit))
-	
-	def asMm(self):
-		return self.getAs("mm")
+            # split the input string into value and unit
+            unitFromInput = ""
+            value = inputStringOrValue
 
-	def asIn(self):
-		return self.getAs("in")
+            while not value[-1].isdigit():
+                unitFromInput = value[-1] + unitFromInput
+                value = value[:-1]
 
-	def asPx(self):
-		return self.getAs("px")
-	
-	def __str__(self):
-		return str(self.value)+"in"
+            if unit != "" and unit != unitFromInput:
+                raise ValueError("Can't interpret input! The string has the unit '{}' but the unit given is '{}'.".format(unitFromInput, unit))
 
-	def __add__(self,other):
-		v = self.value + other.value
-		ret = Dimension(0)
-		ret.value = v
-		return ret
-	
-	def __sub__(self,other):
-		v = self.value - other.value
-		ret = Dimension(0)
-		ret.value = v
-		return ret
-		
-	def __mul__(self,other):
-		v = self.value * other.value
-		ret = Dimension(0)
-		ret.value = v
-		return ret
-		
-	def __truediv__(self,other):
-		v = self.value / other.value
-		ret = Dimension(0)
-		ret.value = v
-		return ret
-		
-	def __neg__(self):
-		ret = Dimension(0)
-		ret.value = -self.value
-		return ret
-		
-######################## STRING HELPERS ######################## 
+            unit = unitFromInput
+        else:
+            value = inputStringOrValue
+
+        if unit == "":
+            unit = "px"
+        if isIllustrator:
+            if unit == "px":
+                unit = unit+"I"
+            else:
+                raise ValueError("Only the unit 'px' can have isIllustrator==true, '{}' dont.".format(unit))
+
+        if unit in Dimension.unit_conversion_table:
+            value = float(value) / Dimension.unit_conversion_table[unit]
+        else:
+            raise ValueError("The unit '{}' is not known!".format(unit))
+
+        self.isIllustrator = isIllustrator
+        self.value = value
+
+    def getAs(self, unit):
+        if unit in Dimension.unit_conversion_table:
+            if Dimension.unit_conversion_table[unit] is int:
+                return math.fsum([self.value] * Dimension.unit_conversion_table[unit])
+            else:
+                return self.value * Dimension.unit_conversion_table[unit]
+        else:
+            raise ValueError("The unit '{}' is not known!".format(unit))
+
+    def asMm(self):
+        return self.getAs("mm")
+
+    def asIn(self):
+        return self.getAs("in")
+
+    def asPx(self):
+        return self.getAs("px")
+
+    def __str__(self):
+        return str(self.value)+"in"
+
+    def __add__(self, other):
+        v = self.value + other.value
+        ret = Dimension(0)
+        ret.value = v
+        return ret
+
+    def __sub__(self, other):
+        v = self.value - other.value
+        ret = Dimension(0)
+        ret.value = v
+        return ret
+
+    def __mul__(self, other):
+        v = self.value * other.value
+        ret = Dimension(0)
+        ret.value = v
+        return ret
+
+    def __truediv__(self, other):
+        v = self.value / other.value
+        ret = Dimension(0)
+        ret.value = v
+        return ret
+
+    def __neg__(self):
+        ret = Dimension(0)
+        ret.value = -self.value
+        return ret
+
+# ###################### STRING HELPERS ########################
+
+
 def transformElement2MatrixString(element):
-	"""Get a OpenSCAD compatible 4x4 matrix of the given 3x3 Qtransform Matrix.
-	http://qt-project.org/doc/qt-4.8/qtransform.html
-	https://en.wikibooks.org/wiki/OpenSCAD_User_Manual/Transformations#multmatrix
-	http://forum.openscad.org/Multmatrix-and-its-mysterious-4th-row-for-idiots-td10506.html"""
-	
-	if element is None:
-		return None
+    """Get a OpenSCAD compatible 4x4 matrix of the given 3x3 Qtransform Matrix.
+    http://qt-project.org/doc/qt-4.8/qtransform.html
+    https://en.wikibooks.org/wiki/OpenSCAD_User_Manual/Transformations#multmatrix
+    http://forum.openscad.org/Multmatrix-and-its-mysterious-4th-row-for-idiots-td10506.html"""
 
-	data = dict(element.attrib)
-	data['m31'] = Dimension(data['m31']).asMm()
-	data['m32'] = Dimension(data['m32']).asMm()
-	#negating on purpose! We need to transform the coordinate system from positive y to negative y:
-	data['m32'] = -data['m32']
-	
-	return """[
-[{m11}	,	{m12}	,	0		,	{m31}	],
-[{m21}	,	{m22}	,	0		,	{m32}	],
-[0		,	0		,	1		,	0		],
-[0		,	0		,	0		,	1		]
+    if element is None:
+        return None
+
+    data = dict(element.attrib)
+    data['m31'] = Dimension(data['m31']).asMm()
+    data['m32'] = Dimension(data['m32']).asMm()
+
+    # negating on purpose! We need to transform the coordinate system
+    # from positive y to negative y:
+    data['m32'] = -data['m32']
+
+    return """[
+[{m11}    ,    {m12}    ,    0        ,    {m31}    ],
+[{m21}    ,    {m22}    ,    0        ,    {m32}    ],
+[0        ,    0        ,    1        ,    0        ],
+[0        ,    0        ,    0        ,    1        ]
 ]""".format(**data)
 
-######################## WORKHORSE ######################## 
+# ####################### WORKHORSE ########################
+
+
 def getParts(xmlRoot):
-	"""Get a list of the parts ON this PCB
-	"""
-	boardsTitles = list() #which of the parts are boards?
-	for boardElement in xmlRoot.findall("./boards/board"):
-		boardsTitles = boardsTitles + [boardElement.attrib['instance']]
-	
-	
-	#relevant instances ON the pcb.
-	#right now "on" means: geometry.z > 0
-	relevantParts = list()
-	
-	#As xml.etree.ElementTree's XPath implementation does not allow
-	#xmlRoot.findall("./instances/instance/views/pcbView/geometry[@z > 0]")
-	#we need to help our self here by selecting them our self.
-	
-	for instance in xmlRoot.findall("./instances/instance"):
-		if str(instance.attrib['moduleIdRef']) not in moduleIdRef_blacklist:
-			geometry = instance.find("./views/pcbView/geometry")
-			if geometry is not None:
-				if(float(geometry.attrib['z']) > 0):
-					instanceTitle = instance.find("./title").text
-					if instanceTitle in boardsTitles:
-						p = PCB.buildFromInstanceXmlElement(instance)
-					else:
-						p = Part.buildFromInstanceXmlElement(instance)
-				
-					relevantParts = relevantParts + [p]
-			else:
-				printConsole("INFO: '{}' does not have XPath:'{}' that IS strange!".format(instance.attrib,"./views/pcbView/geometry"), 2)
-		else:
-			printConsole("INFO: Ignoring '{}' as it is blacklisted!".format(instance.attrib['moduleIdRef']), 2)
-	return relevantParts
+    """Get a list of the parts ON this PCB"""
+    boardsTitles = list()  # which of the parts are boards?
+    for boardElement in xmlRoot.findall("./boards/board"):
+        boardsTitles = boardsTitles + [boardElement.attrib['instance']]
+
+    # relevant instances ON the pcb.
+    # right now "on" means: geometry.z > 0
+    # TODO: Find a better way to determine if the Part belongs to the
+    # PCB. Also there might be parts that are on the bottom of the PCB.
+    relevantParts = list()
+
+    # As xml.etree.ElementTree's XPath implementation does not allow
+    # xmlRoot.findall("./instances/instance/views/pcbView/geometry[@z > 0]")
+    # we need to help our self here by selecting them our self.
+
+    for instance in xmlRoot.findall("./instances/instance"):
+        if str(instance.attrib['moduleIdRef']) not in moduleIdRef_blacklist:
+            geometry = instance.find("./views/pcbView/geometry")
+            if geometry is not None:
+                if(float(geometry.attrib['z']) > 0):
+                    instanceTitle = instance.find("./title").text
+                    if instanceTitle in boardsTitles:
+                        p = PCB.buildFromInstanceXmlElement(instance)
+                    else:
+                        p = Part.buildFromInstanceXmlElement(instance)
+
+                    relevantParts = relevantParts + [p]
+            else:
+                printConsole("INFO: '{}' does not have XPath:'{}' that IS strange!".format(instance.attrib, "./views/pcbView/geometry"), 2)
+        else:
+            printConsole("INFO: Ignoring '{}' as it is blacklisted!".format(instance.attrib['moduleIdRef']), 2)
+    return relevantParts
 
 
-
-######################## SCRIPT PART ######################## 
-#Argument parsing
+# ####################### SCRIPT PART ########################
+# Argument parsing
 parser = argparse.ArgumentParser(description="Creates a 3D Model (OpenSCAD) of the PCB in a Fritzing Sketch.")
 parser.add_argument("INPUT_FILE", help="The Fritzing Sketch File (.fzz) to use.")
 parser.add_argument("-o", "--output", nargs="?", default=None, const="", help="Write output to an .scad File instead to console. (if not defined further 'foo.fzz' becomes 'foo.scad')")
@@ -434,85 +443,85 @@ parser.add_argument("-l", "--list", help="List the parts, their position and rot
 parser.add_argument('-V', '--version', action='version', version="%(prog)s "+str(VERSION))
 args = parser.parse_args()
 
-printConsole("fzz2scad "+str(VERSION), 1) #Say hi
+printConsole("fzz2scad "+str(VERSION), 1)  # Say hi
 
 
-#get filename
+# get filename
 inputFzzFileName = args.INPUT_FILE
 
-#get filename of the fz file in the fzz file
-inputFzFileName = getFilesThatEndWith(inputFzzFileName, ".fz")[0] #We take the first and hope the best.
+# get filename of the fz file in the fzz file
+inputFzFileName = getFilesThatEndWith(inputFzzFileName, ".fz")[0]  # We take the first and hope the best.
 
-#get XML Root of the fz File
+# get XML Root of the fz File
 xmlRoot = getXMLRoot(inputFzzFileName, inputFzFileName)
 
-#get the Parts in the given xml tree
+# get the Parts in the given xml tree
 parts = getParts(xmlRoot)
 
 
-###### Execution depending on the given arguments
+# ##### Execution depending on the given arguments
 
-#list parts and exit
+# list parts and exit
 if args.list:
-	printConsole("Parts:", 0)
-	for part in parts:
-		printConsole(part, 0)
-	exit(0)
+    printConsole("Parts:", 0)
+    for part in parts:
+        printConsole(part, 0)
+    exit(0)
 
-#The Template for the output file
+# The Template for the output file
 outFileTemplate = """//Created with fzz2scad v{version!s} (https://github.com/htho/fzz2scad)
 {includeStatement}
 module {module_name}(){{
 {translate} {{
 {modulelist}
-	}}
+    }}
 }}
 {instance}
 """
 
-#Values to write into the output file.
+# Values to write into the output file.
 outFileTemplateValues = dict()
 outFileTemplateValues['version'] = VERSION
 
 if args.partslib is not None:
-	outFileTemplateValues['includeStatement'] = ("include <"+args.partslib+">")
+    outFileTemplateValues['includeStatement'] = ("include <"+args.partslib+">")
 else:
-	outFileTemplateValues['includeStatement'] = ""
+    outFileTemplateValues['includeStatement'] = ""
 
 if args.module_name is not None:
-	outFileTemplateValues['module_name'] = args.module_name
+    outFileTemplateValues['module_name'] = args.module_name
 else:
-	outFileTemplateValues['module_name'] = (os.path.splitext(os.path.basename(inputFzzFileName))[0])
+    outFileTemplateValues['module_name'] = (os.path.splitext(os.path.basename(inputFzzFileName))[0])
 
 if args.center:
-	outFileTemplateValues['translate'] = "translate([0,0,0])"
-	#TODO get translation coordinates in order to center the PCB
+    outFileTemplateValues['translate'] = "translate([0,0,0])"
+    # TODO get translation coordinates in order to center the PCB
 else:
-	outFileTemplateValues['translate'] = ""
+    outFileTemplateValues['translate'] = ""
 
-#Create the scad strings from the stored parts.
+# Create the scad strings from the stored parts.
 outFileTemplateValues['modulelist'] = ""
 for part in parts:
-	outFileTemplateValues['modulelist'] = outFileTemplateValues['modulelist'] + part.asScad()
+    outFileTemplateValues['modulelist'] = outFileTemplateValues['modulelist'] + part.asScad()
 
 if args.instance:
-	outFileTemplateValues['instance'] = outFileTemplateValues['module_name']+"();"
+    outFileTemplateValues['instance'] = outFileTemplateValues['module_name']+"();"
 else:
-	outFileTemplateValues['instance'] = ""
+    outFileTemplateValues['instance'] = ""
 
-#The complete file as a string
+# The complete file as a string
 outString = outFileTemplate.format(**outFileTemplateValues)
 
-#where to write to?
+# where to write to?
 if args.output is not None:
-	if args.output == "":
-		outFileName = (os.path.splitext(os.path.basename(inputFzzFileName))[0])+".scad"
-	else:
-		outFileName = args.output
-		
-	with open(outFileName, 'w') as f:
-		f.write(outString)
+    if args.output == "":
+        outFileName = (os.path.splitext(os.path.basename(inputFzzFileName))[0])+".scad"
+    else:
+        outFileName = args.output
+
+    with open(outFileName, 'w') as f:
+        f.write(outString)
 else:
-	printConsole(outString, 0)
-	
+    printConsole(outString, 0)
+
 exit(0)
