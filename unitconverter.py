@@ -1,7 +1,7 @@
 '''
     unitconverter.py from fzz2scad: Converts lengths with the given unit
     as a string to another unit.
-    
+
     Copyright (C) 2015  Hauke Thorenz <htho@thorenz.net>
 
     This program is free software: you can redistribute it and/or modify
@@ -19,115 +19,50 @@
 '''
 VERSION = 0.1
 import argparse
-
-def printConsole(s, minimumVerbosityLevel):
-	global args
-	if args.verbosity >= minimumVerbosityLevel:
-		print(s)
-
-def in2mm(v):
-	return v*25.4
-
-
-#Ported from https://github.com/fritzing/fritzing-app/blob/master/src/utils/textutils.cpp
-def convertToInches(value, orgUnit, isIllustrator=False, overrideUnit=None, fallbackUnit="px"):
-	orgUnit = orgUnit.lower() #workaround for caseInsensetive
-	divisor = 1.0
-	
-	if overrideUnit is not None:
-		printConsole("Overriding original unit '{}' with '{}'!".format(orgUnit, overrideUnit), 1)
-	
-	if orgUnit == "":
-		printConsole("No unit given, falling back to '{}'!".format(fallbackUnit), 1)
-		unit = fallbackUnit
-	else:
-		unit = orgUnit
-
-	if (unit == ("cm")):
-		divisor = 2.54
-	elif (unit == ("mm")):
-		divisor = 25.4
-	elif (unit == ("in")):
-		divisor = 1.0
-	elif (unit == ("px")):
-		if (isIllustrator):
-			divisor = 72.0
-		else:
-			divisor = 90.0
-	elif (unit == ("mil")):
-		divisor = 1000.0
-		chop = 3
-	elif (unit == ("pt")):
-		divisor = 72.0
-	elif (unit == ("pc")):
-		divisor = 6.0
-	else:
-		#default to Qt's standard internal units if all else fails
-		divisor = 90.0
-		printConsole("Unknown original unit '{}' using divisor={!s}!".format(orgUnit, divisor), 0)
-
-	result = float(value)
-	printConsole("result={}, divisor={}, return=(result/divisor)={}in".format(result, divisor, (result / divisor)), 2)
-	
-	return result / divisor
+import fzz2scad
 
 
 class ListAction(argparse.Action):
     def __call__(self, parser, *args, **kwargs):
         parser.exit(message="""
-Available Input Units
-	px (default if no unit is given)
-	pt
-	pc
+Available Input and Output Units
+    pxI (px with isIllustrator)
+    px (default input)
+    pt
+    pc
 
-	cm
-	mm
+    cm
+    mm (default output)
 
-	in
-	mil
+    in
+    mil
 
-Available Output Units
-	mm (default)
-	in
-	px
 """)
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument("input", help="Any length with any unit")
-parser.add_argument("-s", "--setunit", help="Override/Set input unit")
+parser.add_argument("input", help="Any length with any of the supported units.")
+parser.add_argument("-s", "--setunit", help="Set input unit", default="")
 parser.add_argument("-o", "--outputunit", help="Specify the output unit (default: mm)", default="mm")
 parser.add_argument("-a", "--appendunit", help="append unit to output", action="store_true")
 parser.add_argument("--isillustrator", help="passes isIllustrator to the convert function. This affects the conversion from px. Fritzing developers might know what this does.", action="store_true")
 parser.add_argument('-l', "--list", action=ListAction, nargs=0, help="List available units and exit.")
-parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
-parser.add_argument('-V', '--version', action='version', version="%(prog)s "+str(VERSION))
+parser.add_argument("-v", "--verbose", action="count", default=0, help="increase output verbosity")
+parser.add_argument('-V', '--version', action='version', version="%(prog)s " + str(VERSION))
 
 args = parser.parse_args()
 
-printConsole("converter "+str(VERSION), 1)
-printConsole("From fzz2scad (https://github.com/htho/fzz2scad)\n", 1)
+fzz2scad.args = args
 
-orgUnit = ""
-valueWithoutUnit = args.input
+fzz2scad.printConsole("converter " + str(VERSION), 1)
+fzz2scad.printConsole("From fzz2scad (https://github.com/htho/fzz2scad)\n", 1)
 
-while not valueWithoutUnit[-1].isdigit():
-	orgUnit = valueWithoutUnit[-1] + orgUnit
-	valueWithoutUnit = valueWithoutUnit[:-1]
+dimension = fzz2scad.Dimension(args.input, args.setunit, args.isillustrator)
 
-printConsole("Converting from '{}' to '{}'".format(orgUnit, args.outputunit), 1)
-
-inchValue = convertToInches(valueWithoutUnit, orgUnit, args.isillustrator)
+outString = str(dimension.getAs(args.outputunit))
 if args.appendunit:
-	appendix = args.outputunit
-else:
-	appendix = ""
+    outString = outString + args.outputunit
 
-if(args.outputunit == "mm"):
-	printConsole(str(in2mm(inchValue))+appendix,0)
-elif(args.outputunit == "in"):
-	printConsole(str(inchValue)+appendix, 0)
-else:
-	printConsole("Can't convert to '{}' unknown output unit! Use -l to see the known units.".format(args.outputunit), 0)
+fzz2scad.printConsole(outString, 0)
 
 exit(0)
