@@ -4,7 +4,7 @@
     Copyright (C) 2015  Hauke Thorenz <htho@thorenz.net>
 
     This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Affero General Public License as published by
+    it under the terms of the GNU Affero General Public License as    published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
@@ -29,6 +29,13 @@ import math
 # Missing models are simply ignored.
 moduleIdRef_blacklist = frozenset([
     "WireModuleID"
+])
+
+# This is a whitelist for <pcbView layer="x"> that determine if a part
+# belongs to the pcbView.
+pcbView_layer_whitelist = frozenset([
+    "board",
+    "copper0"
 ])
 
 
@@ -74,6 +81,7 @@ def getFilesThatEndWith(zipFile, endswith):
 
 
 class Part:
+
     """A Part (e.g. Switch or LED)."""
 
     # static dictionary with information about the different parts.
@@ -81,7 +89,7 @@ class Part:
     # value: dict() (see getPrototype())
     partPrototypes = dict()
 
-    def __init__(self, moduleIdRef, title, partXPos, partYPos, matrix):
+    def __init__(self, moduleIdRef, title, partXPos, partYPos, matrix, bottom):
         """Create a new part instance. This Constuctor will seldom be
         called directly."""
 
@@ -90,7 +98,8 @@ class Part:
         self.partXPos = partXPos
         self.partYPos = partYPos
         self.matrix = matrix
-        self.module_name = "m"+moduleIdRef
+        self.bottom = bottom
+        self.module_name = "m" + moduleIdRef
 
         # TODO: Use RegEx Magic instead
         for c in self.module_name:
@@ -111,20 +120,20 @@ class Part:
 
             Part.partPrototypes[moduleIdRef] = dict()
 
-            fzpFileNamePath = xmlRoot.find("./instances/instance[@moduleIdRef='"+moduleIdRef+"']").attrib['path']
-            fzpRoot = getXMLRoot(inputFzzFileName, "part."+os.path.basename(fzpFileNamePath))
+            fzpFileNamePath = xmlRoot.find("./instances/instance[@moduleIdRef='" + moduleIdRef + "']").attrib['path']
+            fzpRoot = getXMLRoot(inputFzzFileName, "part." + os.path.basename(fzpFileNamePath))
 
             connector0svgId = fzpRoot.find("./connectors/connector[@id='connector0']/views/pcbView/p[@layer='copper0']").attrib['svgId']
 
             svgFileName = (fzpRoot.find("./views/pcbView/layers").attrib['image']).replace("/", ".")
-            svgRoot = getXMLRoot(inputFzzFileName, "svg."+svgFileName)
+            svgRoot = getXMLRoot(inputFzzFileName, "svg." + svgFileName)
 
             viewBoxValues = svgRoot.find(".").attrib['viewBox'].split()
 
             viewBoxWidthOfAUnit = Dimension(svgRoot.find(".").attrib['width']) / Dimension(viewBoxValues[2])
             viewBoxHeightOfAUnit = Dimension(svgRoot.find(".").attrib['height']) / Dimension(viewBoxValues[3])
 
-            svgConnector0Element = svgRoot.find(".//*[@id='"+connector0svgId+"']")
+            svgConnector0Element = svgRoot.find(".//*[@id='" + connector0svgId + "']")
 
             # width and height of the svg (important for correct rotations)
             Part.partPrototypes[moduleIdRef]['svgWidth'] = Dimension(svgRoot.find(".").attrib['width'])
@@ -149,6 +158,17 @@ class Part:
         partXPos = Dimension(instanceXmlElement.find("./views/pcbView/geometry").attrib['x'])
         partYPos = Dimension(instanceXmlElement.find("./views/pcbView/geometry").attrib['y'])
 
+        bottom = False
+        try:
+            bottom_attrib = instanceXmlElement.find("./views/pcbView").attrib['bottom']
+
+            if bottom_attrib == "true":
+                bottom = True
+        except KeyError:
+            # It's okay! This just means bottom = False.
+            # I heard this approach is "pythonic" ?
+            pass
+
         # negating on purpose! We need to transform the coordinate system
         # from positive y to negative y:
         partYPos = -partYPos
@@ -157,8 +177,9 @@ class Part:
             instanceXmlElement.find("./title").text,
             partXPos,
             partYPos,
-            transformElement2MatrixString(instanceXmlElement.find("./views/pcbView/geometry/transform"))
-            )
+            transformElement2MatrixString(instanceXmlElement.find("./views/pcbView/geometry/transform")),
+            bottom
+        )
 
     def asScad(self):
         """get a string representation to be used in an scad file."""
@@ -181,7 +202,7 @@ class Part:
         data['svgZ'] = 1.0  # How tall should the groundplate be?
 
         if self.matrix is not None:
-            data['multmatrix'] = "multmatrix(m="+self.matrix+") //rotation and translation\n"
+            data['multmatrix'] = "multmatrix(m=" + self.matrix + ") //rotation and translation\n"
         else:
             data['multmatrix'] = ""
 
@@ -191,12 +212,17 @@ class Part:
         else:
             data['groundplate'] = ""
 
+        if self.bottom:
+            data['bottom_handling'] = "translate([0,0,-commonPCBHeight]) mirror([0,0,1])"
+        else:
+            data['bottom_handling'] = ""
+
         return"""
 // Part: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}'
 translate([{partXPos},{partYPos},0]) //position
 {multmatrix}
 {{
-    translate([{xOffset},{yOffset},0]) {module}();
+    {bottom_handling} translate([{xOffset},{yOffset},0]) {module}();
     {groundplate}
 }}\n\n""".format(**data)
 
@@ -205,9 +231,11 @@ translate([{partXPos},{partYPos},0]) //position
 
 
 class PCB(Part):
+
     """A Part representing a PCB with the given dimensions."""
-    def __init__(self, moduleIdRef, title, partXPos, partYPos,  matrix, width, depth):
-        super().__init__(moduleIdRef, title, partXPos, partYPos, matrix)
+
+    def __init__(self, moduleIdRef, title, partXPos, partYPos, matrix, width, depth):
+        super().__init__(moduleIdRef, title, partXPos, partYPos, matrix, False)  # It is not possible to have a PCB on the bottom. Isnt it?
         self.width = width
         self.depth = depth
 
@@ -216,7 +244,7 @@ class PCB(Part):
         """Create this PCB from the given instanceXmlElement """
         global xmlRoot
         title = instanceXmlElement.find("./title").text
-        boardXmlElement = xmlRoot.find("./boards/board[@instance='"+title+"']")
+        boardXmlElement = xmlRoot.find("./boards/board[@instance='" + title + "']")
 
         PCBXPos = Dimension(instanceXmlElement.find("./views/pcbView/geometry").attrib['x'])
         PCBYPos = Dimension(instanceXmlElement.find("./views/pcbView/geometry").attrib['y'])
@@ -248,7 +276,7 @@ class PCB(Part):
         data['depth'] = str(self.depth.asMm())
 
         if self.matrix is not None:
-            data['multmatrix'] = "multmatrix(m="+self.matrix+") //rotation and translation\n"
+            data['multmatrix'] = "multmatrix(m=" + self.matrix + ") //rotation and translation\n"
         else:
             data['multmatrix'] = ""
 
@@ -265,6 +293,7 @@ translate([{partXPos},{partYPos},0]) //position
 
 
 class Dimension:
+
     """A dimension. Unit conversion included."""
     unit_conversion_table = dict({
         'pxI': 72,
@@ -301,7 +330,7 @@ class Dimension:
             unit = "px"
         if isIllustrator:
             if unit == "px":
-                unit = unit+"I"
+                unit = unit + "I"
             else:
                 raise ValueError("Only the unit 'px' can have isIllustrator==true, '{}' dont.".format(unit))
 
@@ -332,7 +361,7 @@ class Dimension:
         return self.getAs("px")
 
     def __str__(self):
-        return str(self.value)+"in"
+        return str(self.value) + "in"
 
     def __add__(self, other):
         v = self.value + other.value
@@ -410,17 +439,17 @@ def getParts(xmlRoot):
     # we need to help our self here by selecting them our self.
 
     for instance in xmlRoot.findall("./instances/instance"):
+        if instance.find("./views/pcbView").attrib['layer'] not in pcbView_layer_whitelist:
+            continue
         if str(instance.attrib['moduleIdRef']) not in moduleIdRef_blacklist:
             geometry = instance.find("./views/pcbView/geometry")
             if geometry is not None:
-                if(float(geometry.attrib['z']) > 0):
-                    instanceTitle = instance.find("./title").text
-                    if instanceTitle in boardsTitles:
-                        p = PCB.buildFromInstanceXmlElement(instance)
-                    else:
-                        p = Part.buildFromInstanceXmlElement(instance)
-
-                    relevantParts = relevantParts + [p]
+                instanceTitle = instance.find("./title").text
+                if instanceTitle in boardsTitles:
+                    p = PCB.buildFromInstanceXmlElement(instance)
+                else:
+                    p = Part.buildFromInstanceXmlElement(instance)
+                relevantParts = relevantParts + [p]
             else:
                 printConsole("INFO: '{}' does not have XPath:'{}' that IS strange!".format(instance.attrib, "./views/pcbView/geometry"), 2)
         else:
@@ -440,10 +469,10 @@ parser.add_argument("-g", "--show-groundplate", help="Show a 'groundplate' for e
 parser.add_argument("-c", "--center", help="Center the PCB in the coordinate system (not implemented yet).", action="store_true")
 parser.add_argument("-v", "--verbose", action="count", default=0, help="-v -vv- -vvv increase output verbosity")
 parser.add_argument("-l", "--list", help="List the parts, their position and rotation in the given input file and exit.", action="store_true")
-parser.add_argument('-V', '--version', action='version', version="%(prog)s "+str(VERSION))
+parser.add_argument('-V', '--version', action='version', version="%(prog)s " + str(VERSION))
 args = parser.parse_args()
 
-printConsole("fzz2scad "+str(VERSION), 1)  # Say hi
+printConsole("fzz2scad " + str(VERSION), 1)  # Say hi
 
 
 # get filename
@@ -459,7 +488,7 @@ xmlRoot = getXMLRoot(inputFzzFileName, inputFzFileName)
 parts = getParts(xmlRoot)
 
 
-# ##### Execution depending on the given arguments
+# Execution depending on the given arguments
 
 # list parts and exit
 if args.list:
@@ -484,7 +513,7 @@ outFileTemplateValues = dict()
 outFileTemplateValues['version'] = VERSION
 
 if args.partslib is not None:
-    outFileTemplateValues['includeStatement'] = ("include <"+args.partslib+">")
+    outFileTemplateValues['includeStatement'] = ("include <" + args.partslib + ">")
 else:
     outFileTemplateValues['includeStatement'] = ""
 
@@ -505,7 +534,7 @@ for part in parts:
     outFileTemplateValues['modulelist'] = outFileTemplateValues['modulelist'] + part.asScad()
 
 if args.instance:
-    outFileTemplateValues['instance'] = outFileTemplateValues['module_name']+"();"
+    outFileTemplateValues['instance'] = outFileTemplateValues['module_name'] + "();"
 else:
     outFileTemplateValues['instance'] = ""
 
@@ -515,7 +544,7 @@ outString = outFileTemplate.format(**outFileTemplateValues)
 # where to write to?
 if args.output is not None:
     if args.output == "":
-        outFileName = (os.path.splitext(os.path.basename(inputFzzFileName))[0])+".scad"
+        outFileName = (os.path.splitext(os.path.basename(inputFzzFileName))[0]) + ".scad"
     else:
         outFileName = args.output
 
