@@ -16,13 +16,15 @@
     You should have received a copy of the GNU Affero General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''
-VERSION = 0.1
+
 # import statements: We use pythons included batteries!
-import xml.etree.ElementTree as ET
 import zipfile
 import argparse
+import xml.etree.ElementTree as ET
 import os
 import math
+
+VERSION = 0.1
 
 # This is a blacklist for modules fzz2oscad can't handle.
 # This list is NOT for parts that don't have any models yet.
@@ -37,7 +39,6 @@ pcbView_layer_whitelist = frozenset([
     "board",
     "copper0"
 ])
-
 
 # ####################### I/O HELPER FUNCTIONS ########################
 
@@ -461,99 +462,99 @@ def getParts(xmlRoot):
 
 
 # ####################### SCRIPT PART ########################
-# Argument parsing
-parser = argparse.ArgumentParser(description="Creates a 3D Model (OpenSCAD) of the PCB in a Fritzing Sketch.")
-parser.add_argument("INPUT_FILE", help="The Fritzing Sketch File (.fzz) to use.")
-parser.add_argument("-o", "--output", nargs="?", default=None, const="", help="Write output to an .scad File instead to console. (if not defined further 'foo.fzz' becomes 'foo.scad')")
-parser.add_argument("-p", "--partslib", help="The file where modules are stored. If you don't provide a library, you need to include/define the modules yourself.")
-parser.add_argument("-m", "--module-name", help="The name of the OpenSCAD module that will be created. (default: 'foo.fzz' creates 'module foo()')")
-parser.add_argument("-i", "--instance", help="By default, fzz2scad just creates a module. For previewing and debugging purposes, the module can be instanced.", action="store_true")
-parser.add_argument("-g", "--show-groundplate", help="Show a 'groundplate' for each part. This might be helpful when creating and testing new models.", action="store_true")
-parser.add_argument("-c", "--center", help="Center the PCB in the coordinate system (not implemented yet).", action="store_true")
-parser.add_argument("-v", "--verbose", action="count", default=0, help="-v -vv- -vvv increase output verbosity")
-parser.add_argument("-l", "--list", help="List the parts, their position and rotation in the given input file and exit.", action="store_true")
-parser.add_argument('-V', '--version', action='version', version="%(prog)s " + str(VERSION))
-args = parser.parse_args()
 
-printConsole("fzz2scad " + str(VERSION), 1)  # Say hi
+if __name__ == "__main__":
+    # Argument parsing
+    parser = argparse.ArgumentParser(description="Creates a 3D Model (OpenSCAD) of the PCB in a Fritzing Sketch.")
+    parser.add_argument("INPUT_FILE", help="The Fritzing Sketch File (.fzz) to use.")
+    parser.add_argument("-o", "--output", nargs="?", default=None, const="", help="Write output to an .scad File instead to console. (if not defined further 'foo.fzz' becomes 'foo.scad')")
+    parser.add_argument("-p", "--partslib", help="The file where modules are stored. If you don't provide a library, you need to include/define the modules yourself.")
+    parser.add_argument("-m", "--module-name", help="The name of the OpenSCAD module that will be created. (default: 'foo.fzz' creates 'module foo()')")
+    parser.add_argument("-i", "--instance", help="By default, fzz2scad just creates a module. For previewing and debugging purposes, the module can be instanced.", action="store_true")
+    parser.add_argument("-g", "--show-groundplate", help="Show a 'groundplate' for each part. This might be helpful when creating and testing new models.", action="store_true")
+    parser.add_argument("-c", "--center", help="Center the PCB in the coordinate system (not implemented yet).", action="store_true")
+    parser.add_argument("-v", "--verbose", action="count", default=0, help="-v -vv- -vvv increase output verbosity")
+    parser.add_argument("-l", "--list", help="List the parts, their position and rotation in the given input file and exit.", action="store_true")
+    parser.add_argument('-V', '--version', action='version', version="%(prog)s " + str(VERSION))
+    args = parser.parse_args()
 
+    printConsole("fzz2scad " + str(VERSION), 1)  # Say hi
 
-# get filename
-inputFzzFileName = args.INPUT_FILE
+    # get filename
+    inputFzzFileName = args.INPUT_FILE
 
-# get filename of the fz file in the fzz file
-inputFzFileName = getFilesThatEndWith(inputFzzFileName, ".fz")[0]  # We take the first and hope the best.
+    # get filename of the fz file in the fzz file
+    inputFzFileName = getFilesThatEndWith(inputFzzFileName, ".fz")[0]  # We take the first and hope the best.
 
-# get XML Root of the fz File
-xmlRoot = getXMLRoot(inputFzzFileName, inputFzFileName)
+    # get XML Root of the fz File
+    xmlRoot = getXMLRoot(inputFzzFileName, inputFzFileName)
 
-# get the Parts in the given xml tree
-parts = getParts(xmlRoot)
+    # get the Parts in the given xml tree
+    parts = getParts(xmlRoot)
 
+    # Execution depending on the given arguments
 
-# Execution depending on the given arguments
+    # list parts and exit
+    if args.list:
+        printConsole("Parts:", 0)
+        for part in parts:
+            printConsole(part, 0)
+        exit(0)
 
-# list parts and exit
-if args.list:
-    printConsole("Parts:", 0)
-    for part in parts:
-        printConsole(part, 0)
-    exit(0)
-
-# The Template for the output file
-outFileTemplate = """//Created with fzz2scad v{version!s} (https://github.com/htho/fzz2scad)
+    # The Template for the output file
+    outFileTemplate = """//Created with fzz2scad v{version!s} (https://github.com/htho/fzz2scad)
 {includeStatement}
+{instance}
 module {module_name}(){{
 {translate} {{
 {modulelist}
-    }}
 }}
-{instance}
+}}
 """
 
-# Values to write into the output file.
-outFileTemplateValues = dict()
-outFileTemplateValues['version'] = VERSION
+    # Values to write into the output file.
+    outFileTemplateValues = dict()
+    outFileTemplateValues['version'] = VERSION
 
-if args.partslib is not None:
-    outFileTemplateValues['includeStatement'] = ("include <" + args.partslib + ">")
-else:
-    outFileTemplateValues['includeStatement'] = ""
-
-if args.module_name is not None:
-    outFileTemplateValues['module_name'] = args.module_name
-else:
-    outFileTemplateValues['module_name'] = (os.path.splitext(os.path.basename(inputFzzFileName))[0])
-
-if args.center:
-    outFileTemplateValues['translate'] = "translate([0,0,0])"
-    # TODO get translation coordinates in order to center the PCB
-else:
-    outFileTemplateValues['translate'] = ""
-
-# Create the scad strings from the stored parts.
-outFileTemplateValues['modulelist'] = ""
-for part in parts:
-    outFileTemplateValues['modulelist'] = outFileTemplateValues['modulelist'] + part.asScad()
-
-if args.instance:
-    outFileTemplateValues['instance'] = outFileTemplateValues['module_name'] + "();"
-else:
-    outFileTemplateValues['instance'] = ""
-
-# The complete file as a string
-outString = outFileTemplate.format(**outFileTemplateValues)
-
-# where to write to?
-if args.output is not None:
-    if args.output == "":
-        outFileName = (os.path.splitext(os.path.basename(inputFzzFileName))[0]) + ".scad"
+    if args.partslib is not None:
+        outFileTemplateValues['includeStatement'] = ("include <" + args.partslib + ">")
     else:
-        outFileName = args.output
+        outFileTemplateValues['includeStatement'] = ""
 
-    with open(outFileName, 'w') as f:
-        f.write(outString)
-else:
-    printConsole(outString, 0)
+    if args.module_name is not None:
+        outFileTemplateValues['module_name'] = args.module_name
+    else:
+        outFileTemplateValues['module_name'] = (os.path.splitext(os.path.basename(inputFzzFileName))[0])
 
-exit(0)
+    if args.center:
+        outFileTemplateValues['translate'] = "translate([0,0,0])"
+        # TODO get translation coordinates in order to center the PCB
+    else:
+        outFileTemplateValues['translate'] = ""
+
+    # Create the scad strings from the stored parts.
+    outFileTemplateValues['modulelist'] = ""
+    for part in parts:
+        outFileTemplateValues['modulelist'] = outFileTemplateValues['modulelist'] + part.asScad()
+
+    if args.instance:
+        outFileTemplateValues['instance'] = outFileTemplateValues['module_name'] + "();"
+    else:
+        outFileTemplateValues['instance'] = ""
+
+    # The complete file as a string
+    outString = outFileTemplate.format(**outFileTemplateValues)
+
+    # where to write to?
+    if args.output is not None:
+        if args.output == "":
+            outFileName = (os.path.splitext(os.path.basename(inputFzzFileName))[0]) + ".scad"
+        else:
+            outFileName = args.output
+
+        with open(outFileName, 'w') as f:
+            f.write(outString)
+    else:
+        printConsole(outString, 0)
+
+    exit(0)
