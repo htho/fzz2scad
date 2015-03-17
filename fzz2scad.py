@@ -439,7 +439,10 @@ def getParts(xmlRoot):
     # we need to help our self here by selecting them our self.
 
     for instance in xmlRoot.findall("./instances/instance"):
-        if instance.find("./views/pcbView").attrib['layer'] not in pcbView_layer_whitelist:
+        try:
+            if instance.find("./views/pcbView").attrib['layer'] not in pcbView_layer_whitelist:
+                continue
+        except AttributeError:
             continue
         if str(instance.attrib['moduleIdRef']) not in moduleIdRef_blacklist:
             geometry = instance.find("./views/pcbView/geometry")
