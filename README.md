@@ -1,7 +1,10 @@
-# fzz2scad.py
-Creates a 3D Model (OpenSCAD) of the PCB in a Fritzing Sketch.
-The models are meant to be used to create front plates for 3D-Printed casings. They might 
-also be used to create complete 3D-Models of a PCB - depending on the parts library used.
+# fzz2scad
+
+Create a 3D Model/Frontplate (OpenSCAD) of/for the PCB in a Fritzing Sketch.
+
+The models are meant to be used to create front plates for 3D-Printed casings.
+They might  also be used to create complete 3D-Models of a PCB -
+depending on the parts library used.
 
 ## Note:
 This tool is quite young and I did not have a chance yet to actually print
@@ -25,12 +28,12 @@ can be interpreted by OpenSCAD.
   * OpenSCAD
   * The knowledge to use OpenSCAD.
   * A Library with 3D-Models of the parts on your PCB.
-  (there is one in this repository)
+  (see: [fzz2scad-lib](https://github.com/htho/fzz2scad-lib))
 
 ## Quick Start
 	Try this:
 	
-     $ python fzz2scad.py fzz2scad.py testing/some_buttons_leds_and_a_switch.fzz --instance --partslib lib/basiclib.scad --output
+     $ python fzz2scad.py testing/some_buttons_leds_and_a_switch.fzz --instance --partslib lib/examplelib.scad --output
 
 ## Usage
 
@@ -74,20 +77,26 @@ can be interpreted by OpenSCAD.
 fzz2scad does not do much, it simply extracts and transforms the coordinates.
 
 In Fritzing each part has a unique name. This name is tranlated into a
-valid OpenSCAD module name. This module needs to be defined in the library.
-OpenSCAD ignores modules it does not know, so fzz2scad simply dumps
-everything on the PCB to the file.
+valid OpenSCAD module name. OpenSCAD ignores modules it does not know,
+so fzz2scad simply dumps everything on the PCB to the file.
 
 Depending on the quality of the models in the library, there might be a
 simple cube, representing a button, or a whole set of cubes and cylinders
 describing each detail of the part.
 
-## Usage
-The Library File that may be referenced in fzz2scad, maps the names
-that come from Fritzing to the actual module names in the library.
-It also defines some constants.
+[fzz2scad-lib](https://github.com/htho/fzz2scad-lib) provides a library
+and the tools to create a library-file that resolves all the dependencies
+for your model.
 
-See the ./lib/README.md for information about libraries.
+The library in [fzz2scad-lib](https://github.com/htho/fzz2scad-lib) is a structured
+collection of models that may be used with fzz2scad. Referencing every
+needed file from this library would be a tedious task. Instead a
+library-file that contains all the necessary modules needs to be created.
+This library-file file also maps the names that come from Fritzing to the actual
+module names in the library.
+
+Visit the [HowTo](HOWTO.md) to learn how to create a model/frontplate
+from an fzz file.
 
 # unitconverter.py
 A simple script and wrapper around the functions that convert coordinates
