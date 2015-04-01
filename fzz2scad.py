@@ -502,7 +502,11 @@ if __name__ == "__main__":
         exit(0)
 
     # The Template for the output file
-    outFileTemplate = """//Created with fzz2scad v{version!s} (https://github.com/htho/fzz2scad)
+    outFileTemplate = """/**
+ * @filename: {filename}
+ * @created-with: fzz2scad v{version!s} (https://github.com/htho/fzz2scad)
+ * @module-dependency-list: {module-dependencies}
+ */
 {includeStatement}
 {instance}
 module {module_name}(){{
@@ -515,6 +519,13 @@ module {module_name}(){{
     # Values to write into the output file.
     outFileTemplateValues = dict()
     outFileTemplateValues['version'] = VERSION
+
+    # where to write to?
+    outFileName = (os.path.splitext(os.path.basename(inputFzzFileName))[0]) + ".scad"
+    if args.output is not None and args.output != "":
+        outFileName = args.output
+
+    outFileTemplateValues['filename'] = outFileName
 
     if args.partslib is not None:
         outFileTemplateValues['includeStatement'] = ("include <" + args.partslib + ">")
@@ -534,8 +545,13 @@ module {module_name}(){{
 
     # Create the scad strings from the stored parts.
     outFileTemplateValues['modulelist'] = ""
+    # Create a list of the module dependencies.
+    outFileTemplateValues['module-dependencies'] = []
     for part in parts:
         outFileTemplateValues['modulelist'] = outFileTemplateValues['modulelist'] + part.asScad()
+        outFileTemplateValues['module-dependencies'].append(part.module_name)
+
+    ", ".join(outFileTemplateValues['module-dependencies'])
 
     if args.instance:
         outFileTemplateValues['instance'] = outFileTemplateValues['module_name'] + "();"
@@ -547,10 +563,6 @@ module {module_name}(){{
 
     # where to write to?
     if args.output is not None:
-        if args.output == "":
-            outFileName = (os.path.splitext(os.path.basename(inputFzzFileName))[0]) + ".scad"
-        else:
-            outFileName = args.output
 
         with open(outFileName, 'w') as f:
             f.write(outString)
