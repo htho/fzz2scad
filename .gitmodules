@@ -1,0 +1,3 @@
+[submodule "fzz2scad-lib"]
+	path = fzz2scad-lib
+	url = https://github.com/htho/fzz2scad-lib
