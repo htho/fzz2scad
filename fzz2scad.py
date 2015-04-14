@@ -78,6 +78,39 @@ def getFilesThatEndWith(zipFile, endswith):
     return ret
 
 
+# ####################### TXT HELPER FUNCTIONS ########################
+
+
+def txt_prefix_each_line(string, prefix, ignorefirst=False, ignorelast=False):
+    """prefix each line in the given string with the given prefix.
+    Useful for block indention."""
+    ret = list()
+    splitted = string.splitlines()
+    if len(splitted) == 0:
+        return ""
+
+    if ignorefirst:
+        ret.append(splitted[0])
+        splitted = splitted[1:]
+        if len(splitted) == 0:
+            return "\n".join(ret)
+
+    last = None
+    if ignorelast:
+        last = splitted[-1]
+        splitted = splitted[:-1]
+        if len(splitted) == 0:
+            return "\n".join(ret.append(last))
+
+    for line in splitted:
+        ret.append(prefix + line)
+
+    if ignorelast:
+        ret.append(last)
+
+    return "\n".join(ret)
+
+
 # ####################### CLASSES ########################
 
 
@@ -228,7 +261,7 @@ translate([{partXPos},{partYPos},0]) //position
 }}\n\n""".format(**data)
 
     def __str__(self):
-        return "Part: module_name: '{}', moduleIdRef: '{}', title: '{}', partXPos: '{}mm', partYPos: '{}mm', matrix: '{}'".format(self.module_name, self.moduleIdRef, self.title, self.partXPos.asMm(), self.partYPos.asMm(), self.matrix)
+        return "Part: module_name: '{}', moduleIdRef: '{}', title: '{}', partXPos: '{}mm', partYPos: '{}mm'".format(self.module_name, self.moduleIdRef, self.title, self.partXPos.asMm(), self.partYPos.asMm())
 
 
 class PCB(Part):
@@ -474,7 +507,7 @@ if __name__ == "__main__":
     parser.add_argument("-g", "--show-groundplate", help="Show a 'groundplate' for each part. This might be helpful when creating and testing new models.", action="store_true")
     parser.add_argument("-c", "--center", help="Center the PCB in the coordinate system (not implemented yet).", action="store_true")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="-v -vv- -vvv increase output verbosity")
-    parser.add_argument("-l", "--list", help="List the parts, their position and rotation in the given input file and exit.", action="store_true")
+    parser.add_argument("-l", "--list", help="List the parts and their position in the given input file and exit.", action="store_true")
     parser.add_argument('-V', '--version', action='version', version="%(prog)s " + str(VERSION))
     args = parser.parse_args()
 
@@ -501,12 +534,13 @@ if __name__ == "__main__":
             printConsole(part, 0)
         exit(0)
 
+    outFileCommentTemplate = """@filename: {filename}
+@created-with: fzz2scad v{version!s} (https://github.com/htho/fzz2scad)
+{module-dependencies}
+"""
+
     # The Template for the output file
-    outFileTemplate = """/**
- * @filename: {filename}
- * @created-with: fzz2scad v{version!s} (https://github.com/htho/fzz2scad)
- * @module-dependency-list: {module-dependencies}
- */
+    outFileTemplate = """{fileComment}
 {includeStatement}
 {instance}
 module {module_name}(){{
@@ -518,14 +552,15 @@ module {module_name}(){{
 
     # Values to write into the output file.
     outFileTemplateValues = dict()
-    outFileTemplateValues['version'] = VERSION
+    outFileCommentTemplateValues = dict()
+    outFileCommentTemplateValues['version'] = VERSION
 
     # where to write to?
     outFileName = (os.path.splitext(os.path.basename(inputFzzFileName))[0]) + ".scad"
     if args.output is not None and args.output != "":
         outFileName = args.output
 
-    outFileTemplateValues['filename'] = outFileName
+    outFileCommentTemplateValues['filename'] = outFileName
 
     if args.partslib is not None:
         outFileTemplateValues['includeStatement'] = ("include <" + args.partslib + ">")
@@ -546,12 +581,13 @@ module {module_name}(){{
     # Create the scad strings from the stored parts.
     outFileTemplateValues['modulelist'] = ""
     # Create a list of the module dependencies.
-    outFileTemplateValues['module-dependencies'] = []
+    outFileCommentTemplateValues['module-dependencies'] = []
     for part in parts:
         outFileTemplateValues['modulelist'] = outFileTemplateValues['modulelist'] + part.asScad()
-        outFileTemplateValues['module-dependencies'].append(part.module_name)
+        outFileCommentTemplateValues['module-dependencies'].append("@module-dependency: " + part.module_name)
 
-    ", ".join(outFileTemplateValues['module-dependencies'])
+    outFileCommentTemplateValues['module-dependencies'] = set(outFileCommentTemplateValues['module-dependencies'])
+    outFileCommentTemplateValues['module-dependencies'] = "\n".join(outFileCommentTemplateValues['module-dependencies'])
 
     if args.instance:
         outFileTemplateValues['instance'] = outFileTemplateValues['module_name'] + "();"
@@ -559,6 +595,8 @@ module {module_name}(){{
         outFileTemplateValues['instance'] = ""
 
     # The complete file as a string
+    outFileTemplateValues['fileComment'] = outFileCommentTemplate.format(**outFileCommentTemplateValues)
+    outFileTemplateValues['fileComment'] = "/**\n" + txt_prefix_each_line(outFileTemplateValues['fileComment'], " * ") + "\n */"
     outString = outFileTemplate.format(**outFileTemplateValues)
 
     # where to write to?
