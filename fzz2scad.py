@@ -236,7 +236,7 @@ class Part:
         data['svgZ'] = 1.0  # How tall should the groundplate be?
 
         if self.matrix is not None:
-            data['multmatrix'] = "multmatrix(m=" + self.matrix + ") //rotation and translation\n"
+            data['multmatrix'] = "multmatrix(m=" + txt_prefix_each_line(self.matrix, "    ", ignorefirst=True, ignorelast=True) + ") //rotation and translation\n"
         else:
             data['multmatrix'] = ""
 
@@ -247,18 +247,15 @@ class Part:
             data['groundplate'] = ""
 
         if self.bottom:
-            data['bottom_handling'] = "translate([0,0,-commonPCBHeight]) mirror([0,0,1])"
+            data['bottom_handling'] = "translate([0,0,-pcbHeight]) mirror([0,0,1])"
         else:
             data['bottom_handling'] = ""
 
-        return"""
-// Part: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}'
-translate([{partXPos},{partYPos},0]) //position
-{multmatrix}
-{{
-    {bottom_handling} translate([{xOffset},{yOffset},0]) {module}();
-    {groundplate}
-}}\n\n""".format(**data)
+        return"""// Part: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}'
+translate([{partXPos},{partYPos},0]) //position on the PCB
+{multmatrix}{{
+    {bottom_handling} translate([{xOffset},{yOffset},0]) {module}(); {groundplate}
+}}""".format(**data)
 
     def __str__(self):
         return "Part: module_name: '{}', moduleIdRef: '{}', title: '{}', partXPos: '{}mm', partYPos: '{}mm'".format(self.module_name, self.moduleIdRef, self.title, self.partXPos.asMm(), self.partYPos.asMm())
@@ -310,17 +307,15 @@ class PCB(Part):
         data['depth'] = str(self.depth.asMm())
 
         if self.matrix is not None:
-            data['multmatrix'] = "multmatrix(m=" + self.matrix + ") //rotation and translation\n"
+            data['multmatrix'] = "multmatrix(m=" + txt_prefix_each_line(self.matrix, "    ", ignorefirst=True, ignorelast=True) + ") //rotation and translation\n"
         else:
             data['multmatrix'] = ""
 
-        return """
-// PCB: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}'
+        return """// PCB: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}'
 translate([{partXPos},{partYPos},0]) //position
-{multmatrix}
-{{
-{module}({width},{depth});
-}}\n\n""".format(**data)
+{multmatrix}{{
+    {module}({width}, {depth}, pcbHeight);
+}}""".format(**data)
 
     def __str__(self):
         return "PCB: module_name: '{}', moduleIdRef: '{}', title: '{}', PCBXPos: '{}mm', PCBYPos: '{}mm', matrix: '{}', width: '{}mm', depth: '{}mm'".format(self.module_name, self.moduleIdRef, self.title, self.partXPos.asMm(), self.partYPos.asMm(), self.matrix, self.width.asMm(), self.depth.asMm())
@@ -447,10 +442,10 @@ def transformElement2MatrixString(element):
     data['m32'] = -data['m32']
 
     return """[
-[{m11}    ,    {m12}    ,    0        ,    {m31}    ],
-[{m21}    ,    {m22}    ,    0        ,    {m32}    ],
-[0        ,    0        ,    1        ,    0        ],
-[0        ,    0        ,    0        ,    1        ]
+[ {m11:<10}, {m12:<10}, 0         , {m31:<10}],
+[ {m21:<10}, {m22:<10}, 0         , {m32:<10}],
+[ 0         , 0         , 1         , 0         ],
+[ 0         , 0         , 0         , 1         ]
 ]""".format(**data)
 
 # ####################### WORKHORSE ########################
@@ -501,9 +496,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Creates a 3D Model (OpenSCAD) of the PCB in a Fritzing Sketch.")
     parser.add_argument("INPUT_FILE", help="The Fritzing Sketch File (.fzz) to use.")
     parser.add_argument("-o", "--output", nargs="?", default=None, const="", help="Write output to an .scad File instead to console. (if not defined further 'foo.fzz' becomes 'foo.scad')")
-#    parser.add_argument("-p", "--partslib", help="The file where modules are stored. If you don't provide a library, you need to include/define the modules yourself.")
     parser.add_argument("-m", "--module-name", help="The name of the OpenSCAD module that will be created. (default: 'foo.fzz' creates 'module foo()')")
-#    parser.add_argument("-i", "--instance", help="By default, fzz2scad just creates a module. For previewing and debugging purposes, the module can be instanced.", action="store_true")
     parser.add_argument("-g", "--show-groundplate", help="Show a 'groundplate' for each part. This might be helpful when creating and testing new models.", action="store_true")
     parser.add_argument("-c", "--center", help="Center the PCB in the coordinate system (not implemented yet).", action="store_true")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="-v -vv- -vvv increase output verbosity")
@@ -534,19 +527,24 @@ if __name__ == "__main__":
             printConsole(part, 0)
         exit(0)
 
-    outFileCommentTemplate = """@filename: {filename}
+    outFileFileCommentTemplate = """@filename: {filename}
 @created-with: fzz2scad v{version!s} (https://github.com/htho/fzz2scad)
+"""
+
+    outFileModuleCommentTemplate = """@created-with: fzz2scad v{version!s} (https://github.com/htho/fzz2scad)
 {module-dependencies}
+
+@param: pcbHeight Height of the used PCBs (1.2mm and 1.6mm are common heights)
 """
 
     # The Template for the output file
     outFileTemplate = """{fileComment}
-{includeStatement}
-{instance}
-module {module_name}(){{
-{translate} {{
-{modulelist}
-}}
+
+{moduleComment}
+module {module_name}(pcbHeight){{
+    {translate}{{
+{parts}
+    }}
 }}
 """
 
@@ -562,11 +560,6 @@ module {module_name}(){{
 
     outFileCommentTemplateValues['filename'] = outFileName
 
-    if args.partslib is not None:
-        outFileTemplateValues['includeStatement'] = ("include <" + args.partslib + ">")
-    else:
-        outFileTemplateValues['includeStatement'] = ""
-
     if args.module_name is not None:
         outFileTemplateValues['module_name'] = args.module_name
     else:
@@ -579,24 +572,23 @@ module {module_name}(){{
         outFileTemplateValues['translate'] = ""
 
     # Create the scad strings from the stored parts.
-    outFileTemplateValues['modulelist'] = ""
+    outFileTemplateValues['parts'] = []
     # Create a list of the module dependencies.
     outFileCommentTemplateValues['module-dependencies'] = []
     for part in parts:
-        outFileTemplateValues['modulelist'] = outFileTemplateValues['modulelist'] + part.asScad()
+        outFileTemplateValues['parts'] = outFileTemplateValues['parts'] + [part.asScad()]
         outFileCommentTemplateValues['module-dependencies'].append("@module-dependency: " + part.module_name)
+    outFileTemplateValues['parts'] = "\n\n\n".join(outFileTemplateValues['parts'])
+    outFileTemplateValues['parts'] = txt_prefix_each_line(outFileTemplateValues['parts'], "        ")
 
     outFileCommentTemplateValues['module-dependencies'] = set(outFileCommentTemplateValues['module-dependencies'])
     outFileCommentTemplateValues['module-dependencies'] = "\n".join(outFileCommentTemplateValues['module-dependencies'])
 
-    if args.instance:
-        outFileTemplateValues['instance'] = outFileTemplateValues['module_name'] + "();"
-    else:
-        outFileTemplateValues['instance'] = ""
-
     # The complete file as a string
-    outFileTemplateValues['fileComment'] = outFileCommentTemplate.format(**outFileCommentTemplateValues)
+    outFileTemplateValues['fileComment'] = outFileFileCommentTemplate.format(**outFileCommentTemplateValues)
+    outFileTemplateValues['moduleComment'] = outFileModuleCommentTemplate.format(**outFileCommentTemplateValues)
     outFileTemplateValues['fileComment'] = "/**\n" + txt_prefix_each_line(outFileTemplateValues['fileComment'], " * ") + "\n */"
+    outFileTemplateValues['moduleComment'] = "/**\n" + txt_prefix_each_line(outFileTemplateValues['moduleComment'], " * ") + "\n */"
     outString = outFileTemplate.format(**outFileTemplateValues)
 
     # where to write to?
