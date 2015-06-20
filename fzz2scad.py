@@ -23,6 +23,7 @@ import argparse
 import xml.etree.ElementTree as ET
 import os
 import math
+import re
 
 VERSION = 0.1
 
@@ -30,8 +31,11 @@ VERSION = 0.1
 # This list is NOT for parts that don't have any models yet.
 # Missing models are simply ignored.
 moduleIdRef_blacklist = frozenset([
-    "WireModuleID"
+    "WireModuleID",
+    "ViaModuleID",
+    "generic_male_pin_header_.*"
 ])
+moduleIdRef_blacklist_pattern = frozenset([re.compile(s) for s in moduleIdRef_blacklist])
 
 # This is a whitelist for <pcbView layer="x"> that determine if a part
 # belongs to the pcbView.
@@ -39,6 +43,7 @@ pcbView_layer_whitelist = frozenset([
     "board",
     "copper0"
 ])
+pcbView_layer_whitelist_pattern = frozenset([re.compile(s) for s in pcbView_layer_whitelist])
 
 # ####################### I/O HELPER FUNCTIONS ########################
 
@@ -110,6 +115,12 @@ def txt_prefix_each_line(string, prefix, ignorefirst=False, ignorelast=False):
 
     return "\n".join(ret)
 
+
+def txt_match_in_patternset(string, patternset):
+    for pattern in patternset:
+        if pattern.fullmatch(string):
+            return True
+    return False
 
 # ####################### CLASSES ########################
 
@@ -460,7 +471,7 @@ def getParts(xmlRoot):
     # relevant instances ON the pcb.
     # right now "on" means: geometry.z > 0
     # TODO: Find a better way to determine if the Part belongs to the
-    # PCB. Also there might be parts that are on the bottom of the PCB.
+    # PCB.
     relevantParts = list()
 
     # As xml.etree.ElementTree's XPath implementation does not allow
@@ -469,11 +480,11 @@ def getParts(xmlRoot):
 
     for instance in xmlRoot.findall("./instances/instance"):
         try:
-            if instance.find("./views/pcbView").attrib['layer'] not in pcbView_layer_whitelist:
+            if not txt_match_in_patternset(instance.find("./views/pcbView").attrib['layer'], pcbView_layer_whitelist_pattern):
                 continue
         except AttributeError:
             continue
-        if str(instance.attrib['moduleIdRef']) not in moduleIdRef_blacklist:
+        if not txt_match_in_patternset(str(instance.attrib['moduleIdRef']), moduleIdRef_blacklist_pattern):
             geometry = instance.find("./views/pcbView/geometry")
             if geometry is not None:
                 instanceTitle = instance.find("./title").text
