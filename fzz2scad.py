@@ -671,15 +671,13 @@ if __name__ == "__main__":
 
     outFileModuleCommentTemplate = """@created-with: fzz2scad v{version!s} (https://github.com/htho/fzz2scad)
 {module-dependencies}
-
-@param: pcbHeight Height of the used PCBs (1.2mm and 1.6mm are common heights)
 """
 
     # The Template for the output file
     outFileTemplate = """{fileComment}
 
 {moduleComment}
-module {module_name}(pcbHeight){{
+module {module_name}(){{
     {translate}{{
 {parts}
     }}
