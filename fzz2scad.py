@@ -33,7 +33,8 @@ VERSION = 0.1
 moduleIdRef_blacklist = frozenset([
     "WireModuleID",
     "ViaModuleID",
-    "generic_male_pin_header_.*"
+    "generic_male_pin_header_.*",
+    "generic_female_pin_header_.*"
 ])
 moduleIdRef_blacklist_pattern = frozenset([re.compile(s) for s in moduleIdRef_blacklist])
 
@@ -163,11 +164,12 @@ class Part:
             global inputFzzFileName
             global xmlRoot
 
+            printConsole("Creating Prototype for moduleIdRef='" + moduleIdRef + "'", 2)
+
             Part.partPrototypes[moduleIdRef] = dict()
 
             fzpFileNamePath = xmlRoot.find("./instances/instance[@moduleIdRef='" + moduleIdRef + "']").attrib['path']
             fzpRoot = getXMLRoot(inputFzzFileName, "part." + os.path.basename(fzpFileNamePath))
-
             connector0svgId = fzpRoot.find("./connectors/connector[@id='connector0']/views/pcbView/p[@layer='copper0']").attrib['svgId']
 
             svgFileName = (fzpRoot.find("./views/pcbView/layers").attrib['image']).replace("/", ".")
@@ -190,6 +192,8 @@ class Part:
 
             # negating on purpose! We need to transform the coordinate system from positive y to negative y:
             Part.partPrototypes[moduleIdRef]['yOffset'] = -Part.partPrototypes[moduleIdRef]['yOffset']
+
+            printConsole("Proto '" + moduleIdRef + "': " + repr(Part.partPrototypes[moduleIdRef]), 2)
 
         return Part.partPrototypes[moduleIdRef]
 
@@ -228,6 +232,7 @@ class Part:
 
     def asScad(self):
         """get a string representation to be used in an scad file."""
+        printConsole("Self: '" + str(self) + "'", 2)
         proto = Part.getPrototype(self.moduleIdRef)
         data = dict()
 
@@ -332,6 +337,66 @@ translate([{partXPos},{partYPos},0]) //position
         return "PCB: module_name: '{}', moduleIdRef: '{}', title: '{}', PCBXPos: '{}mm', PCBYPos: '{}mm', matrix: '{}', width: '{}mm', depth: '{}mm'".format(self.module_name, self.moduleIdRef, self.title, self.partXPos.asMm(), self.partYPos.asMm(), self.matrix, self.width.asMm(), self.depth.asMm())
 
 
+class Hole(Part):
+    """A Part representing a Hole."""
+
+    def __init__(self, moduleIdRef, title, partXPos, partYPos, matrix, diameter):
+        super().__init__(moduleIdRef, title, partXPos, partYPos, matrix, False)  # It is not possible to have a Hole on the bottom. Isnt it?
+        self.diameter = diameter
+
+    @staticmethod
+    def buildFromInstanceXmlElement(instanceXmlElement):
+        """Create this Hole from the given instanceXmlElement """
+        global xmlRoot
+        title = instanceXmlElement.find("./title").text
+        xmlElement = xmlRoot.find("./instances/instance[@moduleIdRef='HoleModuleID']")
+
+        xPos = Dimension(xmlElement.find("./views/pcbView/geometry").attrib['x'])
+        yPos = Dimension(xmlElement.find("./views/pcbView/geometry").attrib['y'])
+
+        diameterString = xmlElement.find("./property[@name='hole size']").attrib['value']
+        # The value of diameterString looks like this: "4.2mm,0.0mm" th left value is the diameter, the right value is the thickness of a ring - it can be ignored.
+        diameterValue = Dimension(str(diameterString).split(sep=",", maxsplit=1)[0])
+
+        # negating on purpose! We need to transform the coordinate system
+        # from positive y to negative y:
+        yPos = -yPos
+
+        return Hole(
+            instanceXmlElement.attrib['moduleIdRef'],
+            title,
+            xPos,
+            yPos,
+            transformElement2MatrixString(instanceXmlElement.find("./views/pcbView/geometry/transform")),
+            diameterValue
+        )
+
+    def asScad(self):
+        """get a string representation to be used in an scad file."""
+        data = dict()
+        data['module_name'] = self.module_name
+        data['moduleIdRef'] = self.moduleIdRef
+        data['title'] = self.title
+        data['module'] = self.module_name
+        data['partXPos'] = str(self.partXPos.asMm())
+        data['partYPos'] = str(self.partYPos.asMm())
+        data['diameter'] = str(self.diameter.asMm())
+
+        if self.matrix is not None:
+            data['multmatrix'] = "multmatrix(m=" + txt_prefix_each_line(self.matrix, "    ", ignorefirst=True, ignorelast=True) + ") //rotation and translation\n"
+        else:
+            data['multmatrix'] = ""
+
+        return """// Hole: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}'
+translate([{partXPos},{partYPos},0]) //position
+{multmatrix}{{
+    {module}({diameter}, holeDepth);
+}}""".format(**data)
+
+    def __str__(self):
+        return "Hole: module_name: '{}', moduleIdRef: '{}', title: '{}', PCBXPos: '{}mm', PCBYPos: '{}mm', matrix: '{}', diameter: '{}mm'".format(self.module_name, self.moduleIdRef, self.title, self.partXPos.asMm(), self.partYPos.asMm(), self.matrix, self.diameter.asMm())
+
+
 class Dimension:
 
     """A dimension. Unit conversion included."""
@@ -401,6 +466,9 @@ class Dimension:
         return self.getAs("px")
 
     def __str__(self):
+        return str(self.value) + "in"
+
+    def __repr__(self):
         return str(self.value) + "in"
 
     def __add__(self, other):
@@ -490,6 +558,8 @@ def getParts(xmlRoot):
                 instanceTitle = instance.find("./title").text
                 if instanceTitle in boardsTitles:
                     p = PCB.buildFromInstanceXmlElement(instance)
+                elif instance.attrib['moduleIdRef'] == "HoleModuleID":
+                    p = Hole.buildFromInstanceXmlElement(instance)
                 else:
                     p = Part.buildFromInstanceXmlElement(instance)
                 relevantParts = relevantParts + [p]
