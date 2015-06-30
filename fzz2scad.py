@@ -96,7 +96,8 @@ def txt_from_note(noteXmlElement):
     pElements = htmlRoot.findall("*/p")
     ret = ""
     for p in pElements:
-        ret = ret + p.text + "\n"
+        if p.text is not None:
+            ret = ret + p.text + "\n"
     return ret
 
 
@@ -616,8 +617,15 @@ def getAttributes(xmlRoot):
     for instance in xmlRoot.findall("./instances/instance"):
         try:
             if instance.attrib['moduleIdRef'] == "NoteModuleID" and instance.find("./title").text.startswith("attribute"):  # TODO It would be more elegant to do this with XPath.
+                txt = ""
                 txt = txt_from_note(instance)
-                jsonAttributes = json.loads(txt)
+                try:
+                    jsonAttributes = json.loads(txt)
+                except ValueError as err:
+                    printConsole("ERROR: Problem with json syntax from the note named: '{}':".format(instance.find("./title").text), 0)
+                    printConsole(txt_prefix_each_line(txt, "    ", False, False), 0)
+                    printConsole(err, 0)
+                    raise err
                 return jsonAttributes
         except AttributeError:
             pass
