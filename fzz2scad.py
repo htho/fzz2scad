@@ -21,9 +21,11 @@
 import zipfile
 import argparse
 import xml.etree.ElementTree as ET
+import html
 import os
 import math
 import re
+import json
 
 VERSION = 0.1
 
@@ -87,6 +89,17 @@ def getFilesThatEndWith(zipFile, endswith):
 # ####################### TXT HELPER FUNCTIONS ########################
 
 
+def txt_from_note(noteXmlElement):
+    text = noteXmlElement.find("text").text
+    text = html.unescape(text)
+    htmlRoot = ET.fromstring(text)
+    pElements = htmlRoot.findall("*/p")
+    ret = ""
+    for p in pElements:
+        ret = ret + p.text + "\n"
+    return ret
+
+
 def txt_prefix_each_line(string, prefix, ignorefirst=False, ignorelast=False):
     """prefix each line in the given string with the given prefix.
     Useful for block indention."""
@@ -135,9 +148,12 @@ class Part:
     # value: dict() (see getPrototype())
     partPrototypes = dict()
 
-    def __init__(self, moduleIdRef, title, partXPos, partYPos, matrix, bottom):
+    def __init__(self, moduleIdRef, title, partXPos, partYPos, matrix, bottom, attributes):
         """Create a new part instance. This Constuctor will seldom be
-        called directly."""
+        called directly.
+
+        TODO: Allow regular expressions for finding attributes
+        TODO: merge attributes (attributes may be defined in a regular expression and explicitly)"""
 
         self.moduleIdRef = moduleIdRef
         self.title = title
@@ -146,6 +162,15 @@ class Part:
         self.matrix = matrix
         self.bottom = bottom
         self.module_name = "m" + moduleIdRef
+        if self.title in attributes.keys():
+            self.attributes = attributes[self.title]
+        else:
+            self.attributes = dict()
+
+        if "params" in self.attributes.keys():
+            self.params = self.attributes.pop("params")
+        else:
+            self.params = ""
 
         # TODO: Use RegEx Magic instead
         for c in self.module_name:
@@ -198,9 +223,10 @@ class Part:
         return Part.partPrototypes[moduleIdRef]
 
     @staticmethod
-    def buildFromInstanceXmlElement(instanceXmlElement):
+    def buildFromInstanceXmlElement(instanceXmlElement, attributes):
         """Create a Part from the given instance Element in the tree of
-        of an .fz file."""
+        of an .fz file.
+        """
 
         moduleIdRef = instanceXmlElement.attrib['moduleIdRef']
 
@@ -227,7 +253,8 @@ class Part:
             partXPos,
             partYPos,
             transformElement2MatrixString(instanceXmlElement.find("./views/pcbView/geometry/transform")),
-            bottom
+            bottom,
+            attributes
         )
 
     def asScad(self):
@@ -245,6 +272,8 @@ class Part:
         data['module_name'] = self.module_name
         data['moduleIdRef'] = self.moduleIdRef
         data['title'] = self.title
+        data['attributes'] = self.attributes
+        data['params'] = self.params
 
         data['module'] = self.module_name
         data['partXPos'] = self.partXPos.asMm()
@@ -270,24 +299,25 @@ class Part:
         return"""// Part: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}'
 translate([{partXPos},{partYPos},0]) //position on the PCB
 {multmatrix}{{
-    {bottom_handling} translate([{xOffset},{yOffset},0]) {module}(); {groundplate}
+    {bottom_handling} translate([{xOffset},{yOffset},0]) {module}({params}); {groundplate}
 }}""".format(**data)
 
     def __str__(self):
-        return "Part: module_name: '{}', moduleIdRef: '{}', title: '{}', partXPos: '{}mm', partYPos: '{}mm'".format(self.module_name, self.moduleIdRef, self.title, self.partXPos.asMm(), self.partYPos.asMm())
+        return "Part: module_name: '{}', moduleIdRef: '{}', title: '{}', attributes: '{}', params: '{}', partXPos: '{}mm', partYPos: '{}mm'".format(self.module_name, self.moduleIdRef, self.title, self.attributes, self.params, self.partXPos.asMm(), self.partYPos.asMm())
 
 
 class PCB(Part):
-
     """A Part representing a PCB with the given dimensions."""
 
-    def __init__(self, moduleIdRef, title, partXPos, partYPos, matrix, width, depth):
-        super().__init__(moduleIdRef, title, partXPos, partYPos, matrix, False)  # It is not possible to have a PCB on the bottom. Isnt it?
+    def __init__(self, moduleIdRef, title, partXPos, partYPos, matrix, width, depth, attributes):
+        super().__init__(moduleIdRef, title, partXPos, partYPos, matrix, False, attributes)  # It is not possible to have a PCB on the bottom. Isnt it?
         self.width = width
         self.depth = depth
+        if self.params == "":
+            raise AttributeError('A PCB must have the parameter \'pcbHeight\'. Add a note like this to the PCB Layer: {{"{}":{{"params":"pcbHeight=1.2"}}}}'.format(self.title))
 
     @staticmethod
-    def buildFromInstanceXmlElement(instanceXmlElement):
+    def buildFromInstanceXmlElement(instanceXmlElement, attributes):
         """Create this PCB from the given instanceXmlElement """
         global xmlRoot
         title = instanceXmlElement.find("./title").text
@@ -307,7 +337,8 @@ class PCB(Part):
             PCBYPos,
             transformElement2MatrixString(instanceXmlElement.find("./views/pcbView/geometry/transform")),
             Dimension(boardXmlElement.attrib['width']),
-            Dimension(boardXmlElement.attrib['height'])
+            Dimension(boardXmlElement.attrib['height']),
+            attributes
         )
 
     def asScad(self):
@@ -321,31 +352,35 @@ class PCB(Part):
         data['partYPos'] = str(self.partYPos.asMm())
         data['width'] = str(self.width.asMm())
         data['depth'] = str(self.depth.asMm())
+        data['attributes'] = self.attributes
+        data['params'] = self.params
 
         if self.matrix is not None:
             data['multmatrix'] = "multmatrix(m=" + txt_prefix_each_line(self.matrix, "    ", ignorefirst=True, ignorelast=True) + ") //rotation and translation\n"
         else:
             data['multmatrix'] = ""
 
-        return """// PCB: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}'
+        return """// PCB: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}', attributes: '{attributes}', params: '{params}'
 translate([{partXPos},{partYPos},0]) //position
 {multmatrix}{{
-    {module}({width}, {depth}, pcbHeight);
+    {module}({width}, {depth}, {params});
 }}""".format(**data)
 
     def __str__(self):
-        return "PCB: module_name: '{}', moduleIdRef: '{}', title: '{}', PCBXPos: '{}mm', PCBYPos: '{}mm', matrix: '{}', width: '{}mm', depth: '{}mm'".format(self.module_name, self.moduleIdRef, self.title, self.partXPos.asMm(), self.partYPos.asMm(), self.matrix, self.width.asMm(), self.depth.asMm())
+        return "PCB: module_name: '{}', moduleIdRef: '{}', title: '{}', attributes: '{}', params: '{}', PCBXPos: '{}mm', PCBYPos: '{}mm', matrix: '{}', width: '{}mm', depth: '{}mm'".format(self.module_name, self.moduleIdRef, self.title, self.attributes, self.params, self.partXPos.asMm(), self.partYPos.asMm(), self.matrix, self.width.asMm(), self.depth.asMm())
 
 
 class Hole(Part):
     """A Part representing a Hole."""
 
-    def __init__(self, moduleIdRef, title, partXPos, partYPos, matrix, diameter):
-        super().__init__(moduleIdRef, title, partXPos, partYPos, matrix, False)  # It is not possible to have a Hole on the bottom. Isnt it?
+    def __init__(self, moduleIdRef, title, partXPos, partYPos, matrix, diameter, attributes):
+        super().__init__(moduleIdRef, title, partXPos, partYPos, matrix, False, attributes)  # It is not possible to have a Hole on the bottom. Isnt it?
         self.diameter = diameter
+        if self.params == "":
+            raise AttributeError('A Hole must have the parameter \'drillDepth\'. Add a note like this to the PCB Layer: {{"{}":{{"params":"drillDepth=50"}}}}\nNote that the diameter is extracted from the sketch, so it must not be set as attribute here.'.format(self.title))
 
     @staticmethod
-    def buildFromInstanceXmlElement(instanceXmlElement):
+    def buildFromInstanceXmlElement(instanceXmlElement, attributes):
         """Create this Hole from the given instanceXmlElement """
         global xmlRoot
         title = instanceXmlElement.find("./title").text
@@ -368,7 +403,8 @@ class Hole(Part):
             xPos,
             yPos,
             transformElement2MatrixString(instanceXmlElement.find("./views/pcbView/geometry/transform")),
-            diameterValue
+            diameterValue,
+            attributes
         )
 
     def asScad(self):
@@ -381,20 +417,22 @@ class Hole(Part):
         data['partXPos'] = str(self.partXPos.asMm())
         data['partYPos'] = str(self.partYPos.asMm())
         data['diameter'] = str(self.diameter.asMm())
+        data['attributes'] = self.attributes
+        data['params'] = self.params
 
         if self.matrix is not None:
             data['multmatrix'] = "multmatrix(m=" + txt_prefix_each_line(self.matrix, "    ", ignorefirst=True, ignorelast=True) + ") //rotation and translation\n"
         else:
             data['multmatrix'] = ""
 
-        return """// Hole: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}'
+        return """// Hole: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}', attributes: '{attributes}', params: '{params}',
 translate([{partXPos},{partYPos},0]) //position
 {multmatrix}{{
-    {module}({diameter}, holeDepth);
+    {module}({diameter}, {params});
 }}""".format(**data)
 
     def __str__(self):
-        return "Hole: module_name: '{}', moduleIdRef: '{}', title: '{}', PCBXPos: '{}mm', PCBYPos: '{}mm', matrix: '{}', diameter: '{}mm'".format(self.module_name, self.moduleIdRef, self.title, self.partXPos.asMm(), self.partYPos.asMm(), self.matrix, self.diameter.asMm())
+        return "Hole: module_name: '{}', moduleIdRef: '{}', title: '{}', attributes: '{}', params: '{}', PCBXPos: '{}mm', PCBYPos: '{}mm', matrix: '{}', diameter: '{}mm'".format(self.module_name, self.moduleIdRef, self.title, self.attributes, self.params, self.partXPos.asMm(), self.partYPos.asMm(), self.matrix, self.diameter.asMm())
 
 
 class Dimension:
@@ -530,7 +568,7 @@ def transformElement2MatrixString(element):
 # ####################### WORKHORSE ########################
 
 
-def getParts(xmlRoot):
+def getParts(xmlRoot, attributes=dict()):
     """Get a list of the parts ON this PCB"""
     boardsTitles = list()  # which of the parts are boards?
     for boardElement in xmlRoot.findall("./boards/board"):
@@ -557,17 +595,33 @@ def getParts(xmlRoot):
             if geometry is not None:
                 instanceTitle = instance.find("./title").text
                 if instanceTitle in boardsTitles:
-                    p = PCB.buildFromInstanceXmlElement(instance)
+                    p = PCB.buildFromInstanceXmlElement(instance, attributes)
                 elif instance.attrib['moduleIdRef'] == "HoleModuleID":
-                    p = Hole.buildFromInstanceXmlElement(instance)
+                    p = Hole.buildFromInstanceXmlElement(instance, attributes)
                 else:
-                    p = Part.buildFromInstanceXmlElement(instance)
+                    p = Part.buildFromInstanceXmlElement(instance, attributes)
                 relevantParts = relevantParts + [p]
             else:
                 printConsole("INFO: '{}' does not have XPath:'{}' that IS strange!".format(instance.attrib, "./views/pcbView/geometry"), 2)
         else:
             printConsole("INFO: Ignoring '{}' as it is blacklisted!".format(instance.attrib['moduleIdRef']), 2)
     return relevantParts
+
+
+def getAttributes(xmlRoot):
+    """Extract the Attributes from the file.
+    TODO: Allow more than one note and merging of attributes"""
+
+    attributes = dict()
+    for instance in xmlRoot.findall("./instances/instance"):
+        try:
+            if instance.attrib['moduleIdRef'] == "NoteModuleID" and instance.find("./title").text.startswith("attribute"):  # TODO It would be more elegant to do this with XPath.
+                txt = txt_from_note(instance)
+                jsonAttributes = json.loads(txt)
+                return jsonAttributes
+        except AttributeError:
+            pass
+    return attributes
 
 
 # ####################### SCRIPT PART ########################
@@ -596,8 +650,11 @@ if __name__ == "__main__":
     # get XML Root of the fz File
     xmlRoot = getXMLRoot(inputFzzFileName, inputFzFileName)
 
+    attributes = getAttributes(xmlRoot)
+    printConsole("ATTRIBUTES:\n" + str(attributes), 1)
+
     # get the Parts in the given xml tree
-    parts = getParts(xmlRoot)
+    parts = getParts(xmlRoot, attributes)
 
     # Execution depending on the given arguments
 
