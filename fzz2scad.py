@@ -26,6 +26,7 @@ import os
 import math
 import re
 import json
+import sys
 
 VERSION = 0.1
 
@@ -57,12 +58,16 @@ def printOutFile(s):
     outFileBuffer = outFileBuffer + s
 
 
-def printConsole(s, minimumVerbosityLevel):
+def printConsole(message, minimumVerbosityLevel):
     """Write the given string to the console. To be printed
     args.verbose needs to be >= minimumVerbosityLevel."""
     global args
     if args.verbose >= minimumVerbosityLevel:
-        print(s)
+        print(message)
+
+
+def printErrorConsole(message, minimumVerbosityLevel):
+    print(message, file=sys.stderr)
 
 
 def getXMLRoot(zipFile, xmlFileName):
@@ -85,6 +90,60 @@ def getFilesThatEndWith(zipFile, endswith):
                 ret = ret + [name]
     return ret
 
+
+def determineOutFile(defaultFilenameToDeriveFrom=None, defaultExtensionInfix=None, defaultExtensionOverride=None):
+    global args
+    if args.output is None:
+        return None
+    else:
+        if args.output == "":
+            if defaultFilenameToDeriveFrom is None:
+                outFile = "out"
+                if defaultExtensionInfix is not None:
+                    outFile = outFile + "." + defaultExtensionInfix
+                if defaultExtensionOverride is not None:
+                    outFile = outFile + "." + defaultExtensionOverride
+            else:
+                outFile = os.path.basename(defaultFilenameToDeriveFrom).rsplit(".", 1)
+                if defaultExtensionInfix is not None:
+                    outFile[0] = outFile[0] + "." + defaultExtensionInfix
+                if defaultExtensionOverride is not None:
+                    outFile[1] = defaultExtensionOverride
+                outFile = outFile[0] + outFile[1]
+        else:
+            outFile = args.output
+        return outFile
+
+
+def outputHelper(fileContent, outFile):
+    global args
+    override = True
+    if outFile is not None and os.path.exists(outFile):
+        if args.override:
+            override = True
+            pass
+        elif args.dont_override:
+            override = False
+        else:
+            ans = None
+            while ans is None:
+                tmp_ans = input("'{}' already exists. Do you want to override it? (y/n)".format(outFile))
+                if tmp_ans.strip().lower() == "y":
+                    ans = True
+                elif tmp_ans.strip().lower() == "n":
+                    ans = False
+                else:
+                    print("Please type 'y' for Yes and 'n' for No.\n")
+            if ans is True:
+                override = True
+            else:
+                override = False
+
+    if outFile is None or override is False:
+        printConsole(fileContent, 0)
+    else:
+        with open(outFile, 'w') as f:
+            f.write(fileContent)
 
 # ####################### TXT HELPER FUNCTIONS ########################
 
@@ -149,13 +208,14 @@ class Part:
     # value: dict() (see getPrototype())
     partPrototypes = dict()
 
-    def __init__(self, moduleIdRef, title, partXPos, partYPos, matrix, bottom, attributes):
-        """Create a new part instance. This Constuctor will seldom be
+    def __init__(self, moduleIdRef, title, partXPos, partYPos, matrix, bottom, attributes, schematicCoords):
+        """Create a new part instance. This Constructor will seldom be
         called directly.
 
         TODO: Allow regular expressions for finding attributes
         TODO: merge attributes (attributes may be defined in a regular expression and explicitly)"""
 
+        self.schematicCoords = schematicCoords
         self.moduleIdRef = moduleIdRef
         self.title = title
         self.partXPos = partXPos
@@ -171,12 +231,19 @@ class Part:
         if "params" in self.attributes.keys():
             self.params = self.attributes.pop("params")
         else:
-            self.params = ""
+            self.params = dict()
 
         # TODO: Use RegEx Magic instead
         for c in self.module_name:
             if c not in frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"):
                 self.module_name = self.module_name.replace(c, "_")
+
+    def paramsAsString(self):
+        ret = []
+        for k, v in self.params.items():
+            v = Dimension(v)
+            ret.append("{}={}".format(k, v.asMm()))
+        return ",".join(ret)
 
     @staticmethod
     def getPrototype(moduleIdRef):
@@ -190,7 +257,7 @@ class Part:
             global inputFzzFileName
             global xmlRoot
 
-            printConsole("Creating Prototype for moduleIdRef='" + moduleIdRef + "'", 2)
+            printConsole("INFO: Creating Prototype for moduleIdRef='" + moduleIdRef + "'...", 2)
 
             Part.partPrototypes[moduleIdRef] = dict()
 
@@ -219,7 +286,7 @@ class Part:
             # negating on purpose! We need to transform the coordinate system from positive y to negative y:
             Part.partPrototypes[moduleIdRef]['yOffset'] = -Part.partPrototypes[moduleIdRef]['yOffset']
 
-            printConsole("Proto '" + moduleIdRef + "': " + repr(Part.partPrototypes[moduleIdRef]), 2)
+            printConsole("      Prototype '" + moduleIdRef + "': " + repr(Part.partPrototypes[moduleIdRef]), 2)
 
         return Part.partPrototypes[moduleIdRef]
 
@@ -233,6 +300,9 @@ class Part:
 
         partXPos = Dimension(instanceXmlElement.find("./views/pcbView/geometry").attrib['x'])
         partYPos = Dimension(instanceXmlElement.find("./views/pcbView/geometry").attrib['y'])
+
+        schematicGeometry = instanceXmlElement.find("./views/schematicView/geometry")
+        schematicCoords = (Dimension(schematicGeometry.attrib['x']), Dimension(schematicGeometry.attrib['y']))
 
         bottom = False
         try:
@@ -255,12 +325,12 @@ class Part:
             partYPos,
             transformElement2MatrixString(instanceXmlElement.find("./views/pcbView/geometry/transform")),
             bottom,
-            attributes
+            attributes,
+            schematicCoords
         )
 
     def asScad(self):
         """get a string representation to be used in an scad file."""
-        printConsole("Self: '" + str(self) + "'", 2)
         proto = Part.getPrototype(self.moduleIdRef)
         data = dict()
 
@@ -274,7 +344,7 @@ class Part:
         data['moduleIdRef'] = self.moduleIdRef
         data['title'] = self.title
         data['attributes'] = self.attributes
-        data['params'] = self.params
+        data['params'] = self.paramsAsString()
 
         data['module'] = self.module_name
         data['partXPos'] = self.partXPos.asMm()
@@ -311,11 +381,14 @@ class PCB(Part):
     """A Part representing a PCB with the given dimensions."""
 
     def __init__(self, moduleIdRef, title, partXPos, partYPos, matrix, width, depth, attributes):
-        super().__init__(moduleIdRef, title, partXPos, partYPos, matrix, False, attributes)  # It is not possible to have a PCB on the bottom. Isnt it?
+        super().__init__(moduleIdRef, title, partXPos, partYPos, matrix, False, attributes, None)  # It is not possible to have a PCB on the bottom. Isnt it?
         self.width = width
         self.depth = depth
-        if self.params == "":
-            raise AttributeError('A PCB must have the parameter \'pcbHeight\'. Add a note like this to the PCB Layer: {{"{}":{{"params":"pcbHeight=1.2"}}}}'.format(self.title))
+        self.params['width'] = str(self.width)
+        self.params['depth'] = str(self.depth)
+
+        if "pcbHeight" not in self.params.keys():
+            raise AttributeError('A PCB must have the parameter \'pcbHeight\'. Add a note like this to the PCB Layer: {{"attributes": {{"{}":{{"params":"{{"pcbHeight"="1.2mm"}}}}}}}}'.format(self.title))
 
     @staticmethod
     def buildFromInstanceXmlElement(instanceXmlElement, attributes):
@@ -351,10 +424,8 @@ class PCB(Part):
         data['module'] = self.module_name
         data['partXPos'] = str(self.partXPos.asMm())
         data['partYPos'] = str(self.partYPos.asMm())
-        data['width'] = str(self.width.asMm())
-        data['depth'] = str(self.depth.asMm())
         data['attributes'] = self.attributes
-        data['params'] = self.params
+        data['params'] = self.paramsAsString()
 
         if self.matrix is not None:
             data['multmatrix'] = "multmatrix(m=" + txt_prefix_each_line(self.matrix, "    ", ignorefirst=True, ignorelast=True) + ") //rotation and translation\n"
@@ -364,7 +435,7 @@ class PCB(Part):
         return """// PCB: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}', attributes: '{attributes}', params: '{params}'
 translate([{partXPos},{partYPos},0]) //position
 {multmatrix}{{
-    {module}({width}, {depth}, {params});
+    {module}({params});
 }}""".format(**data)
 
     def __str__(self):
@@ -375,10 +446,11 @@ class Hole(Part):
     """A Part representing a Hole."""
 
     def __init__(self, moduleIdRef, title, partXPos, partYPos, matrix, diameter, attributes):
-        super().__init__(moduleIdRef, title, partXPos, partYPos, matrix, False, attributes)  # It is not possible to have a Hole on the bottom. Isnt it?
+        super().__init__(moduleIdRef, title, partXPos, partYPos, matrix, False, attributes, None)  # It is not possible to have a Hole on the bottom. Isnt it?
         self.diameter = diameter
-        if self.params == "":
-            raise AttributeError('A Hole must have the parameter \'drillDepth\'. Add a note like this to the PCB Layer: {{"{}":{{"params":"drillDepth=50"}}}}\nNote that the diameter is extracted from the sketch, so it must not be set as attribute here.'.format(self.title))
+        if "drillDepth" not in self.params:
+            raise AttributeError('A Hole must have the parameter \'drillDepth\'. Add a note like this to the PCB Layer: {{"attributes": {{"{}":{{"params":"drillDepth=50"}}}}\nNote that the diameter is extracted from the sketch, so it must not be set as attribute here.'.format(self.title))
+        self.params['diameter'] = str(self.diameter)
 
     @staticmethod
     def buildFromInstanceXmlElement(instanceXmlElement, attributes):
@@ -417,9 +489,8 @@ class Hole(Part):
         data['module'] = self.module_name
         data['partXPos'] = str(self.partXPos.asMm())
         data['partYPos'] = str(self.partYPos.asMm())
-        data['diameter'] = str(self.diameter.asMm())
         data['attributes'] = self.attributes
-        data['params'] = self.params
+        data['params'] = self.paramsAsString()
 
         if self.matrix is not None:
             data['multmatrix'] = "multmatrix(m=" + txt_prefix_each_line(self.matrix, "    ", ignorefirst=True, ignorelast=True) + ") //rotation and translation\n"
@@ -429,7 +500,7 @@ class Hole(Part):
         return """// Hole: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}', attributes: '{attributes}', params: '{params}',
 translate([{partXPos},{partYPos},0]) //position
 {multmatrix}{{
-    {module}({diameter}, {params});
+    {module}({params});
 }}""".format(**data)
 
     def __str__(self):
@@ -463,10 +534,13 @@ class Dimension:
                 unitFromInput = value[-1] + unitFromInput
                 value = value[:-1]
 
-            if unit != "" and unit != unitFromInput:
+            if unit != "" and unitFromInput != "" and unit != unitFromInput:
                 raise ValueError("Can't interpret input! The string has the unit '{}' but the unit given is '{}'.".format(unitFromInput, unit))
-
-            unit = unitFromInput
+            elif unit == "" and unitFromInput != "":
+                unit = unitFromInput
+            else:  # (unit != "" and unitFromInput == "") or (unit == unitFromInput)
+                # uint = unit
+                pass
         else:
             value = inputStringOrValue
 
@@ -509,6 +583,24 @@ class Dimension:
 
     def __repr__(self):
         return str(self.value) + "in"
+
+    def __lt__(self, other):
+        return self.value < other.value
+
+    def __le__(self, other):
+        return self.value <= other.value
+
+    def __eq__(self, other):
+        return self.value == other.value
+
+    def __ne__(self, other):
+        return self.value != other.value
+
+    def __gt__(self, other):
+        return self.value > other.value
+
+    def __ge__(self, other):
+        return self.value >= other.value
 
     def __add__(self, other):
         v = self.value + other.value
@@ -566,7 +658,7 @@ def transformElement2MatrixString(element):
 [ 0         , 0         , 0         , 1         ]
 ]""".format(**data)
 
-# ####################### WORKHORSE ########################
+# ####################### WORKHORSES ########################
 
 
 def getParts(xmlRoot, attributes=dict()):
@@ -579,7 +671,7 @@ def getParts(xmlRoot, attributes=dict()):
     # right now "on" means: geometry.z > 0
     # TODO: Find a better way to determine if the Part belongs to the
     # PCB.
-    relevantParts = list()
+    relevantParts = dict()
 
     # As xml.etree.ElementTree's XPath implementation does not allow
     # xmlRoot.findall("./instances/instance/views/pcbView/geometry[@z > 0]")
@@ -588,6 +680,7 @@ def getParts(xmlRoot, attributes=dict()):
     for instance in xmlRoot.findall("./instances/instance"):
         try:
             if not txt_match_in_patternset(instance.find("./views/pcbView").attrib['layer'], pcbView_layer_whitelist_pattern):
+                printConsole("INFO: Ignoring '{}' as it is not whitelisted!".format(instance.attrib['moduleIdRef']), 3)
                 continue
         except AttributeError:
             continue
@@ -601,50 +694,169 @@ def getParts(xmlRoot, attributes=dict()):
                     p = Hole.buildFromInstanceXmlElement(instance, attributes)
                 else:
                     p = Part.buildFromInstanceXmlElement(instance, attributes)
-                relevantParts = relevantParts + [p]
+                printConsole("INFO: Adding '{}' title='{}'".format(instance.attrib['moduleIdRef'], p.title), 2)
+                relevantParts[p.title] = p
             else:
-                printConsole("INFO: '{}' does not have XPath:'{}' that IS strange!".format(instance.attrib, "./views/pcbView/geometry"), 2)
+                printConsole("INFO: Strange! '{}' does not have XPath:'{}' that IS strange!".format(instance.attrib, "./views/pcbView/geometry"), 2)
         else:
             printConsole("INFO: Ignoring '{}' as it is blacklisted!".format(instance.attrib['moduleIdRef']), 2)
     return relevantParts
 
 
-def getAttributes(xmlRoot):
-    """Extract the Attributes from the file.
-    TODO: Allow more than one note and merging of attributes"""
-
-    attributes = dict()
+def getConfig(xmlRoot, moduleNameOrPrefix):
+    """Extract the configuration from the sketch.
+    TODO: Allow more than one note and merging of configuration notes"""
+    ret = dict({"attributes": dict(), "modules": dict()})
     for instance in xmlRoot.findall("./instances/instance"):
         try:
-            if instance.attrib['moduleIdRef'] == "NoteModuleID" and instance.find("./title").text.startswith("attribute"):  # TODO It would be more elegant to do this with XPath.
-                txt = ""
-                txt = txt_from_note(instance)
-                try:
-                    jsonAttributes = json.loads(txt)
-                except ValueError as err:
-                    printConsole("ERROR: Problem with json syntax from the note named: '{}':".format(instance.find("./title").text), 0)
-                    printConsole(txt_prefix_each_line(txt, "    ", False, False), 0)
-                    printConsole(err, 0)
-                    raise err
-                return jsonAttributes
+            if instance.attrib['moduleIdRef'] == "NoteModuleID":  # TODO It would be more elegant to do this with XPath.
+                title = instance.find("./title").text
+                if title == "fzz2scad_config" or title.startswith("fzz2scad_config"):
+                    txt = ""
+                    txt = txt_from_note(instance)
+                    try:
+                        jsonData = json.loads(txt)
+                    except ValueError as err:
+                        printConsole("ERROR: Problem with json syntax from the note named: '{}':".format(instance.find("./title").text), 0)
+                        printConsole(txt_prefix_each_line(txt, "    ", False, False), 0)
+                        printConsole(err, 0)
+                        raise err
+                    if "attributes" in jsonData.keys():
+                        ret["attributes"] = jsonData["attributes"]
+                    if "modules" in jsonData.keys():
+                        for moduleName in list(jsonData["modules"].keys()):
+                            ret["modules"][moduleNameOrPrefix + "_" + moduleName] = jsonData["modules"].pop(moduleName)
         except AttributeError:
             pass
-    return attributes
+    if not ret["modules"]:  # empty?
+        ret["modules"][moduleNameOrPrefix] = {"default": True}
+    return ret
 
+
+def xyInAbcd(xy=(), abcd=dict()):
+    if xy is None or abcd is None:
+        return False
+    elif xy[0] < abcd[0] or abcd[1] < xy[0]:
+        return False
+    elif xy[1] < abcd[2] or abcd[3] < xy[1]:
+        return False
+    else:
+        return True
+
+
+def splitPartsToModules(xmlRoot, parts, configModules):
+    ret = dict()
+    defaultModuleName = None
+
+    for moduleName, modelConfig in configModules.items():
+        printConsole("INFO: Processing module '{}'.".format(moduleName), 2)
+        ret[moduleName] = dict()
+        if "frames" in modelConfig:
+            printConsole("INFO: Found 'frames' list in configuration for module '{}'.".format(moduleName), 2)
+            for frameTitle in modelConfig['frames']:
+                # find frame from schema, find items in this frame, add to list
+                printConsole("INFO: Looking for frame '{}'.".format(frameTitle), 2)
+                instance = xmlRoot.find("./instances/instance[@moduleIdRef='SchematicFrameModuleID'][title='" + frameTitle + "']")
+                if instance:
+                    # get coordinates of the frame
+                    geometry = instance.find(".views/schematicView/geometry")
+                    x1 = Dimension(geometry.attrib["x"])
+                    y1 = Dimension(geometry.attrib["y"])
+                    x2 = x1 + Dimension(instance.find(".property[@name='width']").attrib["value"], unit="mm")
+                    y2 = y1 + Dimension(instance.find(".property[@name='height']").attrib["value"], unit="mm")
+                    abcd = (x1, x2, y1, y2)
+                    printConsole("INFO: Found Frame '{}' for model '{}' with Coordinates '(x1,x2,y1,y2)={}'.".format(frameTitle, moduleName, abcd), 2)
+
+                    # find parts that are in abcd
+                    for partTitle in sorted(list(parts.keys())):
+                        if xyInAbcd(parts[partTitle].schematicCoords, abcd):
+                            printConsole("INFO: Part '{}' in Frame '{}' {}.".format(partTitle, frameTitle, str(parts[partTitle].schematicCoords)), 2)
+                            ret[moduleName][partTitle] = parts.pop(partTitle)
+                else:
+                    printConsole("WARNING: Frame '{}' not found but it was set in the configuration for the model '{}'.".format(frameTitle, moduleName), 1)
+
+        if "pcb" in modelConfig:
+            # TODO find the pcb and the items on this pcb, add to list
+            pass
+        if "default" in modelConfig:
+            defaultModuleName = moduleName
+        if "parts" in modelConfig:
+            printConsole("INFO: Found 'parts' list in cofiguration for module '{}'.".format(moduleName), 2)
+            for partTitle in modelConfig["parts"]:
+                if partTitle in parts:
+                    printConsole("INFO: Adding Part '{}' to Module '{}' as it is set in the 'parts' list in the configuration.".format(partTitle, moduleName), 2)
+                    ret[moduleName][partTitle] = parts.pop(partTitle)
+                else:
+                    printConsole("WARNING: Part '{}' not found but it was set in the configuration for the module '{}'.".format(partTitle, moduleName), 1)
+
+    if defaultModuleName is not None:
+        printConsole("INFO: Found the default module '{}'.".format(defaultModuleName), 2)
+        for partTitle in list(parts.keys()):
+            printConsole("INFO: Adding the part '{}' to the default module '{}'.".format(partTitle, defaultModuleName), 2)
+            ret[defaultModuleName][partTitle] = parts.pop(partTitle)
+    elif defaultModuleName is None and parts:  # parts is not empty
+        printConsole("WARINING: There is no default module. But there are parts without a module.", 1)
+        printConsole("WARINING: These parts do not belong to any module:\n          " + repr(parts.keys()) + "\n          Check your Sketch. You may add {\"default\" : true} to a module.", 1)
+    return ret
+
+
+def createModuleString(moduleName, moduleParts, center):
+    moduleCommentTemplate = """
+@created-with: fzz2scad v{version!s} (https://github.com/htho/fzz2scad)
+{module-dependencies}
+"""
+    moduleTemplate = """{moduleComment}
+module {module_name}(){{
+    {translate}{{
+{parts}
+    }}
+}}"""
+
+    values = dict()
+    values['version'] = VERSION
+
+    values['module_name'] = moduleName
+
+    if center:
+        values['translate'] = "translate([0,0,0])"
+        # TODO get translation coordinates in order to center the PCB
+    else:
+        values['translate'] = ""
+
+    values['parts'] = []
+    values['module-dependencies'] = []
+    for partName, partInstance in moduleParts.items():
+        values['parts'].append(partInstance.asScad())
+        values['module-dependencies'].append("@module-dependency: " + partInstance.module_name)
+    values['parts'] = sorted(values['parts'])
+    values['parts'] = "\n\n\n".join(values['parts'])
+    values['parts'] = txt_prefix_each_line(values['parts'], "        ")
+
+    values['module-dependencies'] = sorted(set(values['module-dependencies']))
+    values['module-dependencies'] = "\n".join(values['module-dependencies'])
+
+    values['moduleComment'] = moduleCommentTemplate.format(**values)
+    values['moduleComment'] = "/**\n" + txt_prefix_each_line(values['moduleComment'], " * ") + "\n */"
+    return moduleTemplate.format(**values)
 
 # ####################### SCRIPT PART ########################
 
 if __name__ == "__main__":
     # Argument parsing
-    parser = argparse.ArgumentParser(description="Creates a 3D Model (OpenSCAD) of the PCB in a Fritzing Sketch.")
+    parser = argparse.ArgumentParser(description="Creates a 3D Module (OpenSCAD) of the PCB in a Fritzing Sketch.")
     parser.add_argument("INPUT_FILE", help="The Fritzing Sketch File (.fzz) to use.")
-    parser.add_argument("-o", "--output", nargs="?", default=None, const="", help="Write output to an .scad File instead to console. (if not defined further 'foo.fzz' becomes 'foo.scad')")
-    parser.add_argument("-m", "--module-name", help="The name of the OpenSCAD module that will be created. (default: 'foo.fzz' creates 'module foo()')")
-    parser.add_argument("-g", "--show-groundplate", help="Show a 'groundplate' for each part. This might be helpful when creating and testing new models.", action="store_true")
-    parser.add_argument("-c", "--center", help="Center the PCB in the coordinate system (not implemented yet).", action="store_true")
+    parser.add_argument("-m", "--module-name", default=None, help="The name of the OpenSCAD module that will be created. (default: 'foo.fzz' creates 'module foo()') If there are names set in the Sketch, this becomes a prefix.")
+    parser.add_argument("-g", "--show-groundplate", help="Show a 'groundplate' for each part. This might be helpful when creating and testing new modules.", action="store_true")
+    parser.add_argument("-c", "--center", help="Center the PCB in the coordinate system (NOT IMPLEMENTED YET).", action="store_true")
+    parser.add_argument("-r", "--round", help="Try to round coordinates as Fritzing is not able to place parts in eg. x=0;y=0 (NOT IMPLEMENTED YET).", action="store_true")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="-v -vv- -vvv increase output verbosity")
     parser.add_argument("-l", "--list", help="List the parts and their position in the given input file and exit.", action="store_true")
     parser.add_argument('-V', '--version', action='version', version="%(prog)s " + str(VERSION))
+    parser.add_argument("-o", "--output", nargs="?", default=None, const="", help="Write output to an .scad File instead to console. (if not defined further 'foo.fzz' becomes 'foo.scad')")
+    parser.add_argument("--override", action="store_true", help="Override existing output files without asking.")
+    parser.add_argument("--dont-override", action="store_true", help="Do not override any existing output files - Print to console instead.")
+    parser.add_argument("--ask", default="true", action="store_true", help="Ask if an existing file should be overwritten. (default)")
+
     args = parser.parse_args()
 
     printConsole("fzz2scad " + str(VERSION), 1)  # Say hi
@@ -652,17 +864,33 @@ if __name__ == "__main__":
     # get filename
     inputFzzFileName = args.INPUT_FILE
 
+    outputFileName = determineOutFile(args.INPUT_FILE, None, ".scad")
+
     # get filename of the fz file in the fzz file
     inputFzFileName = getFilesThatEndWith(inputFzzFileName, ".fz")[0]  # We take the first and hope the best.
 
-    # get XML Root of the fz File
+    printConsole("PROGRESS: Taking XML Root from input file...", 1)
     xmlRoot = getXMLRoot(inputFzzFileName, inputFzFileName)
 
-    attributes = getAttributes(xmlRoot)
-    printConsole("ATTRIBUTES:\n" + str(attributes), 1)
+    printConsole("PROGRESS: Taking the Configturation from the xml tree...", 1)
 
-    # get the Parts in the given xml tree
-    parts = getParts(xmlRoot, attributes)
+    if args.module_name is not None:
+        moduleNameOrPrefix = args.module_name
+    else:
+        moduleNameOrPrefix = str(os.path.split(inputFzzFileName)[-1]).split(".")[0]
+
+    configuration = getConfig(xmlRoot, moduleNameOrPrefix)
+    printConsole("CONFIGURATION:" + json.dumps(configuration, sort_keys=True, indent=4), 1)
+
+    printConsole("PROGRESS: Extracting Parts from the xml tree...", 1)
+    parts = getParts(xmlRoot, configuration['attributes'])
+    printConsole("PARTS:" + repr(parts), 1)
+
+    printConsole("PROGRESS: Sorting parts into modules...", 1)
+    modules = splitPartsToModules(xmlRoot, parts, configuration['modules'])
+    for moduleName, moduleParts in modules.items():
+        printConsole("MODULE '{}':".format(moduleName), 1)
+        printConsole("    PARTS: {}".format(moduleParts.keys()), 1)
 
     # Execution depending on the given arguments
 
@@ -673,74 +901,36 @@ if __name__ == "__main__":
             printConsole(part, 0)
         exit(0)
 
-    outFileFileCommentTemplate = """@filename: {filename}
+    fileCommentTemplate = """@filename: {filename}
 @created-with: fzz2scad v{version!s} (https://github.com/htho/fzz2scad)
 """
 
-    outFileModuleCommentTemplate = """@created-with: fzz2scad v{version!s} (https://github.com/htho/fzz2scad)
-{module-dependencies}
-"""
-
     # The Template for the output file
-    outFileTemplate = """{fileComment}
+    fileTemplate = """{fileComment}
 
-{moduleComment}
-module {module_name}(){{
-    {translate}{{
-{parts}
-    }}
-}}
+{modules}
 """
 
     # Values to write into the output file.
-    outFileTemplateValues = dict()
-    outFileCommentTemplateValues = dict()
-    outFileCommentTemplateValues['version'] = VERSION
+    fileValues = dict()
+    fileValues['version'] = VERSION
 
     # where to write to?
-    outFileName = (os.path.splitext(os.path.basename(inputFzzFileName))[0]) + ".scad"
-    if args.output is not None and args.output != "":
-        outFileName = args.output
+    fileValues['filename'] = outputFileName
 
-    outFileCommentTemplateValues['filename'] = outFileName
+    printConsole("PROGRESS: Creating modules...", 1)
+    fileValues['modules'] = []
+    for moduleName, moduleParts in modules.items():
+        fileValues['modules'].append(createModuleString(moduleName, moduleParts, args.center))
 
-    if args.module_name is not None:
-        outFileTemplateValues['module_name'] = args.module_name
-    else:
-        outFileTemplateValues['module_name'] = (os.path.splitext(os.path.basename(inputFzzFileName))[0])
-
-    if args.center:
-        outFileTemplateValues['translate'] = "translate([0,0,0])"
-        # TODO get translation coordinates in order to center the PCB
-    else:
-        outFileTemplateValues['translate'] = ""
-
-    # Create the scad strings from the stored parts.
-    outFileTemplateValues['parts'] = []
-    # Create a list of the module dependencies.
-    outFileCommentTemplateValues['module-dependencies'] = []
-    for part in parts:
-        outFileTemplateValues['parts'] = outFileTemplateValues['parts'] + [part.asScad()]
-        outFileCommentTemplateValues['module-dependencies'].append("@module-dependency: " + part.module_name)
-    outFileTemplateValues['parts'] = "\n\n\n".join(outFileTemplateValues['parts'])
-    outFileTemplateValues['parts'] = txt_prefix_each_line(outFileTemplateValues['parts'], "        ")
-
-    outFileCommentTemplateValues['module-dependencies'] = set(outFileCommentTemplateValues['module-dependencies'])
-    outFileCommentTemplateValues['module-dependencies'] = "\n".join(outFileCommentTemplateValues['module-dependencies'])
+    fileValues['modules'] = sorted(fileValues['modules'])
+    fileValues['modules'] = "\n\n\n".join(fileValues['modules'])
 
     # The complete file as a string
-    outFileTemplateValues['fileComment'] = outFileFileCommentTemplate.format(**outFileCommentTemplateValues)
-    outFileTemplateValues['moduleComment'] = outFileModuleCommentTemplate.format(**outFileCommentTemplateValues)
-    outFileTemplateValues['fileComment'] = "/**\n" + txt_prefix_each_line(outFileTemplateValues['fileComment'], " * ") + "\n */"
-    outFileTemplateValues['moduleComment'] = "/**\n" + txt_prefix_each_line(outFileTemplateValues['moduleComment'], " * ") + "\n */"
-    outString = outFileTemplate.format(**outFileTemplateValues)
+    fileValues['fileComment'] = fileCommentTemplate.format(**fileValues)
+    fileValues['fileComment'] = "/**\n" + txt_prefix_each_line(fileValues['fileComment'], " * ") + "\n */"
 
-    # where to write to?
-    if args.output is not None:
+    outString = fileTemplate.format(**fileValues)
 
-        with open(outFileName, 'w') as f:
-            f.write(outString)
-    else:
-        printConsole(outString, 0)
-
+    outputHelper(outString, outputFileName)
     exit(0)
