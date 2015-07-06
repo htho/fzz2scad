@@ -1,0 +1,12 @@
+{
+    "modules": {
+        "mRectanglePCBModuleID" : {"name" : "perfboardPCB_100mil", "arguments" : {"width": "width", "depth": "depth", "pcbHeight": "height"}},
+        "mTwoLayerRectanglePCBModuleID" : {"name" : "perfboardPCB_100mil", "arguments" : {"width": "width", "depth": "depth", "pcbHeight": "height"}},
+        "m3mmColorLEDModuleID" : {"name" : "led3mm_hq", "arguments" : ["distanceFromPCB"]},
+        "m5mmColorLEDModuleID" : {"name" : "led5mm_hq", "arguments" : ["distanceFromPCB"]},
+        "m20A9BBEE34_ST_stretched" : "JTP_1130E_hq_stretched",
+        "m20A9BBEE34_ST" : "JTP_1130E_hq",
+		"msparkfun_promicro" : {"name" : "pro_micro_lq", "arguments" : ["distanceFromPCB"]},
+        "m1238DBDC00_toggle_switch" : "ESP10XX_hq"
+    }
+}

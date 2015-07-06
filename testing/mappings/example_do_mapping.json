@@ -1,0 +1,10 @@
+{
+    "modules": {
+        "m3mmColorLEDModuleID" : {"name" : "led3mm_do", "arguments" : ["distanceFromPCB", "drillDepth"]},
+        "m5mmColorLEDModuleID" : {"name" : "led5mm_do", "arguments" : ["distanceFromPCB", "drillDepth"]},
+        "m20A9BBEE34_ST_stretched" : {"name" : "JTP_1130E_do_stretched", "arguments" : ["drillDepth"]},
+        "m20A9BBEE34_ST" : {"name" : "JTP_1130E_do", "arguments" : ["drillDepth"]},
+        "msparkfun_promicro" : {"name" : "pro_micro_do", "arguments" : ["distanceFromPCB", "drillDepth"]},
+        "m1238DBDC00_toggle_switch" : {"name" : "ESP10XX_do", "arguments" : ["drillDepth"]}
+    }
+}
