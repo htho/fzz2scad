@@ -233,6 +233,11 @@ class Part:
         else:
             self.params = dict()
 
+        if "z" in self.attributes.keys():
+            self.partZPos = Dimension(self.attributes.pop("z"))
+        else:
+            self.partZPos = Dimension(0)
+
         # TODO: Use RegEx Magic instead
         for c in self.module_name:
             if c not in frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"):
@@ -254,37 +259,46 @@ class Part:
         Offset: Position of connector0 IN the SVG
         """
         if moduleIdRef not in Part.partPrototypes:
-            global inputFzzFileName
-            global xmlRoot
-
             printConsole("INFO: Creating Prototype for moduleIdRef='" + moduleIdRef + "'...", 2)
-
             Part.partPrototypes[moduleIdRef] = dict()
 
-            fzpFileNamePath = xmlRoot.find("./instances/instance[@moduleIdRef='" + moduleIdRef + "']").attrib['path']
-            fzpRoot = getXMLRoot(inputFzzFileName, "part." + os.path.basename(fzpFileNamePath))
-            connector0svgId = fzpRoot.find("./connectors/connector[@id='connector0']/views/pcbView/p[@layer='copper0']").attrib['svgId']
+            if moduleIdRef == "HoleModuleID":
+                # Fetching information from https://github.com/fritzing/fritzing-app/blob/master/resources/parts/svg/core/pcb/hole.svg
+                Part.partPrototypes[moduleIdRef]['svgWidth'] = Dimension("0.075in")
+                Part.partPrototypes[moduleIdRef]['svgHeight'] = Dimension("0.075in")
 
-            svgFileName = (fzpRoot.find("./views/pcbView/layers").attrib['image']).replace("/", ".")
-            svgRoot = getXMLRoot(inputFzzFileName, "svg." + svgFileName)
+                # position of center IN the svg.
+                Part.partPrototypes[moduleIdRef]['xOffset'] = Dimension("27.7") * (Dimension("0.075in") / Dimension("75"))
+                Part.partPrototypes[moduleIdRef]['yOffset'] = -(Dimension("27.7") * (Dimension("0.075in") / Dimension("75")))
 
-            viewBoxValues = svgRoot.find(".").attrib['viewBox'].split()
+            else:
+                global inputFzzFileName
+                global xmlRoot
 
-            viewBoxWidthOfAUnit = Dimension(svgRoot.find(".").attrib['width']) / Dimension(viewBoxValues[2])
-            viewBoxHeightOfAUnit = Dimension(svgRoot.find(".").attrib['height']) / Dimension(viewBoxValues[3])
+                fzpFileNamePath = xmlRoot.find("./instances/instance[@moduleIdRef='" + moduleIdRef + "']").attrib['path']
+                fzpRoot = getXMLRoot(inputFzzFileName, "part." + os.path.basename(fzpFileNamePath))
+                connector0svgId = fzpRoot.find("./connectors/connector[@id='connector0']/views/pcbView/p[@layer='copper0']").attrib['svgId']
 
-            svgConnector0Element = svgRoot.find(".//*[@id='" + connector0svgId + "']")
+                svgFileName = (fzpRoot.find("./views/pcbView/layers").attrib['image']).replace("/", ".")
+                svgRoot = getXMLRoot(inputFzzFileName, "svg." + svgFileName)
 
-            # width and height of the svg (important for correct rotations)
-            Part.partPrototypes[moduleIdRef]['svgWidth'] = Dimension(svgRoot.find(".").attrib['width'])
-            Part.partPrototypes[moduleIdRef]['svgHeight'] = Dimension(svgRoot.find(".").attrib['height'])
+                viewBoxValues = svgRoot.find(".").attrib['viewBox'].split()
 
-            # position of connector0 IN the svg.
-            Part.partPrototypes[moduleIdRef]['xOffset'] = Dimension(svgConnector0Element.attrib['cx']) * viewBoxWidthOfAUnit
-            Part.partPrototypes[moduleIdRef]['yOffset'] = Dimension(svgConnector0Element.attrib['cy']) * viewBoxHeightOfAUnit
+                viewBoxWidthOfAUnit = Dimension(svgRoot.find(".").attrib['width']) / Dimension(viewBoxValues[2])
+                viewBoxHeightOfAUnit = Dimension(svgRoot.find(".").attrib['height']) / Dimension(viewBoxValues[3])
 
-            # negating on purpose! We need to transform the coordinate system from positive y to negative y:
-            Part.partPrototypes[moduleIdRef]['yOffset'] = -Part.partPrototypes[moduleIdRef]['yOffset']
+                svgConnector0Element = svgRoot.find(".//*[@id='" + connector0svgId + "']")
+
+                # width and height of the svg (important for correct rotations)
+                Part.partPrototypes[moduleIdRef]['svgWidth'] = Dimension(svgRoot.find(".").attrib['width'])
+                Part.partPrototypes[moduleIdRef]['svgHeight'] = Dimension(svgRoot.find(".").attrib['height'])
+
+                # position of connector0 IN the svg.
+                Part.partPrototypes[moduleIdRef]['xOffset'] = Dimension(svgConnector0Element.attrib['cx']) * viewBoxWidthOfAUnit
+                Part.partPrototypes[moduleIdRef]['yOffset'] = Dimension(svgConnector0Element.attrib['cy']) * viewBoxHeightOfAUnit
+
+                # negating on purpose! We need to transform the coordinate system from positive y to negative y:
+                Part.partPrototypes[moduleIdRef]['yOffset'] = -Part.partPrototypes[moduleIdRef]['yOffset']
 
             printConsole("      Prototype '" + moduleIdRef + "': " + repr(Part.partPrototypes[moduleIdRef]), 2)
 
@@ -349,6 +363,7 @@ class Part:
         data['module'] = self.module_name
         data['partXPos'] = self.partXPos.asMm()
         data['partYPos'] = self.partYPos.asMm()
+        data['partZPos'] = self.partZPos.asMm()
         data['svgZ'] = 1.0  # How tall should the groundplate be?
 
         if self.matrix is not None:
@@ -358,23 +373,23 @@ class Part:
 
         global args
         if args.show_groundplate:
-            data['groundplate'] = "%translate([{svgWidth}/2,-{svgHeight}/2,-{svgZ}/2]) cube([{svgWidth},{svgHeight},{svgZ}],true);".format(**data)
+            data['groundplate'] = "%translate([{svgWidth}/2,-{svgHeight}/2,{partZPos}-{svgZ}/2]) cube([{svgWidth},{svgHeight},{svgZ}],true);".format(**data)
         else:
             data['groundplate'] = ""
 
         if self.bottom:
-            data['bottom_handling'] = "translate([0,0,-pcbHeight]) mirror([0,0,1])"
+            data['bottom_handling'] = "mirror([0,0,1])"
         else:
             data['bottom_handling'] = ""
 
         return"""// Part: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}'
-translate([{partXPos},{partYPos},0]) //position on the PCB
+translate([{partXPos},{partYPos},partZPos]) //position on the PCB
 {multmatrix}{{
     {bottom_handling} translate([{xOffset},{yOffset},0]) {module}({params}); {groundplate}
 }}""".format(**data)
 
     def __str__(self):
-        return "Part: module_name: '{}', moduleIdRef: '{}', title: '{}', attributes: '{}', params: '{}', partXPos: '{}mm', partYPos: '{}mm'".format(self.module_name, self.moduleIdRef, self.title, self.attributes, self.params, self.partXPos.asMm(), self.partYPos.asMm())
+        return "Part: module_name: '{}', moduleIdRef: '{}', title: '{}', attributes: '{}', params: '{}', partXPos: '{}mm', partYPos: '{}mm', partZPos: '{}mm'".format(self.module_name, self.moduleIdRef, self.title, self.attributes, self.params, self.partXPos.asMm(), self.partYPos.asMm(), self.partZPos.asMm())
 
 
 class PCB(Part):
@@ -424,6 +439,7 @@ class PCB(Part):
         data['module'] = self.module_name
         data['partXPos'] = str(self.partXPos.asMm())
         data['partYPos'] = str(self.partYPos.asMm())
+        data['partZPos'] = str(self.partZPos.asMm())
         data['attributes'] = self.attributes
         data['params'] = self.paramsAsString()
 
@@ -433,13 +449,13 @@ class PCB(Part):
             data['multmatrix'] = ""
 
         return """// PCB: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}', attributes: '{attributes}', params: '{params}'
-translate([{partXPos},{partYPos},0]) //position
+translate([{partXPos},{partYPos},{partZPos}]) //position
 {multmatrix}{{
     {module}({params});
 }}""".format(**data)
 
     def __str__(self):
-        return "PCB: module_name: '{}', moduleIdRef: '{}', title: '{}', attributes: '{}', params: '{}', PCBXPos: '{}mm', PCBYPos: '{}mm', matrix: '{}', width: '{}mm', depth: '{}mm'".format(self.module_name, self.moduleIdRef, self.title, self.attributes, self.params, self.partXPos.asMm(), self.partYPos.asMm(), self.matrix, self.width.asMm(), self.depth.asMm())
+        return "PCB: module_name: '{}', moduleIdRef: '{}', title: '{}', attributes: '{}', params: '{}', PCBXPos: '{}mm', PCBYPos: '{}mm',  PCBZPos: '{}mm', matrix: '{}', width: '{}mm', depth: '{}mm'".format(self.module_name, self.moduleIdRef, self.title, self.attributes, self.params, self.partXPos.asMm(), self.partYPos.asMm(), self.partZPos.asMm(), self.matrix, self.width.asMm(), self.depth.asMm())
 
 
 class Hole(Part):
@@ -457,12 +473,11 @@ class Hole(Part):
         """Create this Hole from the given instanceXmlElement """
         global xmlRoot
         title = instanceXmlElement.find("./title").text
-        xmlElement = xmlRoot.find("./instances/instance[@moduleIdRef='HoleModuleID']")
 
-        xPos = Dimension(xmlElement.find("./views/pcbView/geometry").attrib['x'])
-        yPos = Dimension(xmlElement.find("./views/pcbView/geometry").attrib['y'])
+        xPos = Dimension(instanceXmlElement.find("./views/pcbView/geometry").attrib['x'])
+        yPos = Dimension(instanceXmlElement.find("./views/pcbView/geometry").attrib['y'])
 
-        diameterString = xmlElement.find("./property[@name='hole size']").attrib['value']
+        diameterString = instanceXmlElement.find("./property[@name='hole size']").attrib['value']
         # The value of diameterString looks like this: "4.2mm,0.0mm" th left value is the diameter, the right value is the thickness of a ring - it can be ignored.
         diameterValue = Dimension(str(diameterString).split(sep=",", maxsplit=1)[0])
 
@@ -482,29 +497,49 @@ class Hole(Part):
 
     def asScad(self):
         """get a string representation to be used in an scad file."""
+        proto = Part.getPrototype(self.moduleIdRef)
         data = dict()
+
+        data['svgWidth'] = proto['svgWidth'].asMm() * Dimension(self.params["diameter"]).asMm()
+        data['svgHeight'] = proto['svgHeight'].asMm() * Dimension(self.params["diameter"]).asMm()
+        data['xOffset'] = proto['xOffset'].asMm() * Dimension(self.params["diameter"]).asMm()
+        data['yOffset'] = proto['yOffset'].asMm() * Dimension(self.params["diameter"]).asMm()
+        data['svgZ'] = 1.0  # How tall should the groundplate be?
+
         data['module_name'] = self.module_name
         data['moduleIdRef'] = self.moduleIdRef
         data['title'] = self.title
         data['module'] = self.module_name
         data['partXPos'] = str(self.partXPos.asMm())
         data['partYPos'] = str(self.partYPos.asMm())
+        data['partZPos'] = str(self.partZPos.asMm())
         data['attributes'] = self.attributes
         data['params'] = self.paramsAsString()
+
+        global args
+        if args.show_groundplate:
+            data['groundplate'] = "%translate([{svgWidth}/2,-{svgHeight}/2,{partZPos}-{svgZ}/2]) cube([{svgWidth},{svgHeight},{svgZ}],true);".format(**data)
+        else:
+            data['groundplate'] = ""
 
         if self.matrix is not None:
             data['multmatrix'] = "multmatrix(m=" + txt_prefix_each_line(self.matrix, "    ", ignorefirst=True, ignorelast=True) + ") //rotation and translation\n"
         else:
             data['multmatrix'] = ""
 
-        return """// Hole: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}', attributes: '{attributes}', params: '{params}',
-translate([{partXPos},{partYPos},0]) //position
+#         return """// Hole: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}', attributes: '{attributes}', params: '{params}',
+# translate([{partXPos},{partYPos},0]) //position
+# {multmatrix}{{
+#     {module}({params});
+# }}""".format(**data)
+        return"""// Hole: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}', attributes: '{attributes}', params: '{params}',
+translate([{partXPos},{partYPos},{partZPos}]) //position on the PCB
 {multmatrix}{{
-    {module}({params});
+    translate([{xOffset},{yOffset},0]) {module}({params}); {groundplate}
 }}""".format(**data)
 
     def __str__(self):
-        return "Hole: module_name: '{}', moduleIdRef: '{}', title: '{}', attributes: '{}', params: '{}', PCBXPos: '{}mm', PCBYPos: '{}mm', matrix: '{}', diameter: '{}mm'".format(self.module_name, self.moduleIdRef, self.title, self.attributes, self.params, self.partXPos.asMm(), self.partYPos.asMm(), self.matrix, self.diameter.asMm())
+        return "Hole: module_name: '{}', moduleIdRef: '{}', title: '{}', attributes: '{}', params: '{}', HoleXPos: '{}mm', HoleYPos: '{}mm', HoleZPos: '{}mm', matrix: '{}', diameter: '{}mm'".format(self.module_name, self.moduleIdRef, self.title, self.attributes, self.params, self.partXPos.asMm(), self.partYPos.asMm(), self.partZPos.asMm(), self.matrix, self.diameter.asMm())
 
 
 class Dimension:
@@ -615,13 +650,19 @@ class Dimension:
         return ret
 
     def __mul__(self, other):
-        v = self.value * other.value
+        if isinstance(other, Dimension):
+            v = self.value * other.value
+        else:
+            v = self.value * other
         ret = Dimension(0)
         ret.value = v
         return ret
 
     def __truediv__(self, other):
-        v = self.value / other.value
+        if isinstance(other, Dimension):
+            v = self.value / other.value
+        else:
+            v = self.value / other
         ret = Dimension(0)
         ret.value = v
         return ret
@@ -800,7 +841,7 @@ def splitPartsToModules(xmlRoot, parts, configModules):
     return ret
 
 
-def createModuleString(moduleName, moduleParts, center):
+def createModuleString(moduleName, moduleParts, center, configuration):
     moduleCommentTemplate = """
 @created-with: fzz2scad v{version!s} (https://github.com/htho/fzz2scad)
 {module-dependencies}
@@ -808,7 +849,12 @@ def createModuleString(moduleName, moduleParts, center):
     moduleTemplate = """{moduleComment}
 module {module_name}(){{
     {translate}{{
+        difference(){{
+            union(){{
 {parts}
+            }}
+{holes}
+        }}
     }}
 }}"""
 
@@ -817,20 +863,49 @@ module {module_name}(){{
 
     values['module_name'] = moduleName
 
-    if center:
-        values['translate'] = "translate([0,0,0])"
-        # TODO get translation coordinates in order to center the PCB
-    else:
-        values['translate'] = ""
+    translate = [0, 0, 0]
+    if "modules" in configuration.keys():
+        if moduleName in configuration["modules"].keys():
+            module = configuration["modules"][moduleName]
+            if "z" in module.keys():
+                translate[2] = Dimension(module["z"]).asMm()
+            if "center" in module.keys():
+                if module["center"] in moduleParts.keys():
+                    printConsole("INFO: centering '{}'".format(module["center"]), 3)
+                    centerEntity = moduleParts[module["center"]]
+                    if isinstance(centerEntity, PCB):
+                        translate[0] = - (centerEntity.width.asMm() / 2) - centerEntity.partXPos.asMm()
+                        translate[1] = (centerEntity.depth.asMm() / 2) - centerEntity.partYPos.asMm()
+                    elif isinstance(centerEntity, Hole):
+                        proto = Part.getPrototype("HoleModuleID")
+                        translate[0] = -(centerEntity.partXPos.asMm() + proto['xOffset'].asMm() * Dimension(centerEntity.params["diameter"]).asMm())
+                        translate[1] = -(centerEntity.partYPos.asMm() + proto['yOffset'].asMm() * Dimension(centerEntity.params["diameter"]).asMm())
+#                    elif isinstance(centerEntity, Part):
+#                         # TODO Test
+#                         translate[0] = -(centerEntity.partXPos.asMm() + proto['xOffset'].asMm())
+#                         translate[1] = -(centerEntity.partYPos.asMm() + proto['yOffset'].asMm())
+                    else:
+                        raise RuntimeError("Can only center PCBs and Holes.")
+    values['translate'] = "translate({})".format(repr(translate))
 
+    values['holes'] = []
     values['parts'] = []
     values['module-dependencies'] = []
+
     for partName, partInstance in moduleParts.items():
-        values['parts'].append(partInstance.asScad())
+        if isinstance(partInstance, Hole):
+            values['holes'].append(partInstance.asScad())
+        else:
+            values['parts'].append(partInstance.asScad())
         values['module-dependencies'].append("@module-dependency: " + partInstance.module_name)
+
     values['parts'] = sorted(values['parts'])
     values['parts'] = "\n\n\n".join(values['parts'])
-    values['parts'] = txt_prefix_each_line(values['parts'], "        ")
+    values['parts'] = txt_prefix_each_line(values['parts'], "                    ")
+
+    values['holes'] = sorted(values['holes'])
+    values['holes'] = "\n\n\n".join(values['holes'])
+    values['holes'] = txt_prefix_each_line(values['holes'], "                    ")
 
     values['module-dependencies'] = sorted(set(values['module-dependencies']))
     values['module-dependencies'] = "\n".join(values['module-dependencies'])
@@ -847,7 +922,6 @@ if __name__ == "__main__":
     parser.add_argument("INPUT_FILE", help="The Fritzing Sketch File (.fzz) to use.")
     parser.add_argument("-m", "--module-name", default=None, help="The name of the OpenSCAD module that will be created. (default: 'foo.fzz' creates 'module foo()') If there are names set in the Sketch, this becomes a prefix.")
     parser.add_argument("-g", "--show-groundplate", help="Show a 'groundplate' for each part. This might be helpful when creating and testing new modules.", action="store_true")
-    parser.add_argument("-c", "--center", help="Center the PCB in the coordinate system (NOT IMPLEMENTED YET).", action="store_true")
     parser.add_argument("-r", "--round", help="Try to round coordinates as Fritzing is not able to place parts in eg. x=0;y=0 (NOT IMPLEMENTED YET).", action="store_true")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="-v -vv- -vvv increase output verbosity")
     parser.add_argument("-l", "--list", help="List the parts and their position in the given input file and exit.", action="store_true")
@@ -921,7 +995,7 @@ if __name__ == "__main__":
     printConsole("PROGRESS: Creating modules...", 1)
     fileValues['modules'] = []
     for moduleName, moduleParts in modules.items():
-        fileValues['modules'].append(createModuleString(moduleName, moduleParts, args.center))
+        fileValues['modules'].append(createModuleString(moduleName, moduleParts, args.center, configuration))
 
     fileValues['modules'] = sorted(fileValues['modules'])
     fileValues['modules'] = "\n\n\n".join(fileValues['modules'])
