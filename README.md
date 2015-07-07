@@ -6,6 +6,12 @@ The models are meant to be used to create front plates for 3D-Printed casings.
 They might  also be used to create complete 3D-Models of a PCB -
 depending on the parts library used.
 
+| PCB in Friting | Model | Frontplate |
+|----------------|-------|------------|
+|![An Example PCB](testing/step_by_step_example/screenshot_pcb.png)|![A Model created from this PCB](testing/step_by_step_example/screenshot_model.png)|![A Frontplate created for this PCB](testing/step_by_step_example/screenshot_frontplate.png)|
+|[switch_and_led.fzz](testing/fritzing/switch_and_led.fzz)|[switch_and_led_frontplate.scad](testing/step_by_step_example/switch_and_led_frontplate.scad)|[switch_and_led_model.scad](testing/step_by_step_example/switch_and_led_model.scad)|
+
+
 ## Note:
 This tool is quite young and I did not have a chance yet to actually print
 a case or a frontplate. Please share your experiences with me at the
