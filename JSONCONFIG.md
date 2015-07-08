@@ -71,7 +71,7 @@ is no way to extract this information as there are 1.2mm and 1.6mm PCBs.
   * `pcbHeight`: The height of this PCB
   
 
-### `export` NOT IMPLEMENTED YET!
+### `export` PARTLY IMPLEMENTED
 `..."PARTNAME": {"export": {"INTERNAL_NAME": "EXTERNAL_NAME"} }...`
 
 Sometimes some parameters of the model are needed outside of the model
@@ -83,8 +83,8 @@ as a variable.
   * `y` (y Position of connector0) NOT IMPLEMENTED YET!
   * `z` (y Position of connector0 depending on the z position of the module and the z attribute of this part) NOT IMPLEMENTED YET!
   * `rotation` NOT IMPLEMENTED YET!
-  * `name` NOT IMPLEMENTED YET!
-  * `isBottom` (0=top; 1=bottom) NOT IMPLEMENTED YET!
+  * `title`
+  * `isBottom` (0=top; 1=bottom)
 
 #### Exportable Values for Holes
   * `diameter`
@@ -92,7 +92,7 @@ as a variable.
   * `y` (y Position of the center) NOT IMPLEMENTED YET!
   * `z` (y Position of the center depending on the z position of the module and the z attribute of this hole) NOT IMPLEMENTED YET!
   * `rotation` NOT IMPLEMENTED YET!
-  * `name` NOT IMPLEMENTED YET!
+  * `title`
 
 #### Exportable Values for PCBs
   * `width` (horizontal dimension `x` in Fritzing and OpenSCAD)
@@ -102,7 +102,7 @@ as a variable.
   * `y` (y Position of the top left corner) NOT IMPLEMENTED YET!
   * `z` (z Position of the top left corner depending on the z position of the module and the z attribute of this pcb) NOT IMPLEMENTED YET!
   * `rotation` NOT IMPLEMENTED YET!
-  * `name` NOT IMPLEMENTED YET!
+  * `title`
 
 ### `z`
 `..."PARTNAME": {"z": "VALUE" }...`

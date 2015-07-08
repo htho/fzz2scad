@@ -243,6 +243,23 @@ class Part:
             if c not in frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"):
                 self.module_name = self.module_name.replace(c, "_")
 
+    def export(self, internal_name):
+        if internal_name == "title":
+            return self.title
+        elif internal_name == "x":
+            return None
+        elif internal_name == "y":
+            return None
+        elif internal_name == "z":
+            return None
+        elif internal_name == "rotation":
+            return None
+        elif internal_name == "isBottom":
+            if self.bottom:
+                return 1
+            else:
+                return 0
+
     def paramsAsString(self):
         ret = []
         for k, v in self.params.items():
@@ -430,6 +447,16 @@ class PCB(Part):
             attributes
         )
 
+    def export(self, internal_name):
+        if internal_name == "width":
+            return self.width.asMm()
+        elif internal_name == "height":
+            return self.depth.asMm()
+        elif internal_name == "pcbHeight":
+            return Dimension(self.params["pcbHeight"]).asMm()
+        else:
+            return super().export(internal_name)
+
     def asScad(self):
         """get a string representation to be used in an scad file."""
         data = dict()
@@ -494,6 +521,12 @@ class Hole(Part):
             diameterValue,
             attributes
         )
+
+    def export(self, internal_name):
+        if internal_name == "diameter":
+            return self.diameter.asMm()
+        else:
+            return super().export(internal_name)
 
     def asScad(self):
         """get a string representation to be used in an scad file."""
@@ -841,7 +874,7 @@ def splitPartsToModules(xmlRoot, parts, configModules):
     return ret
 
 
-def createModuleString(moduleName, moduleParts, center, configuration):
+def createModuleString(moduleName, moduleParts, configuration):
     moduleCommentTemplate = """
 @created-with: fzz2scad v{version!s} (https://github.com/htho/fzz2scad)
 {module-dependencies}
@@ -856,7 +889,8 @@ module {module_name}(){{
 {holes}
         }}
     }}
-}}"""
+}}
+"""
 
     values = dict()
     values['version'] = VERSION
@@ -914,6 +948,19 @@ module {module_name}(){{
     values['moduleComment'] = "/**\n" + txt_prefix_each_line(values['moduleComment'], " * ") + "\n */"
     return moduleTemplate.format(**values)
 
+
+def createExportString(parts, configuration):
+    export = list()
+    if "attributes" in configuration.keys():
+        for entityName, entityConfig in configuration["attributes"].items():
+            if entityName in parts.keys() and "export" in entityConfig.keys():
+                for internal_name, external_name in entityConfig["export"].items():
+                    exp = parts[entityName].export(internal_name)
+                    if exp is not None:
+                        export.append("{} = ({});".format(external_name, exp))
+    return "\n".join(export)
+
+
 # ####################### SCRIPT PART ########################
 
 if __name__ == "__main__":
@@ -960,20 +1007,20 @@ if __name__ == "__main__":
     parts = getParts(xmlRoot, configuration['attributes'])
     printConsole("PARTS:" + repr(parts), 1)
 
+    # list parts and exit
+    if args.list:
+        printConsole("Parts:", 0)
+        for part in sorted(parts):
+            printConsole(part, 0)
+        exit(0)
+
+    exportString = createExportString(parts, configuration)
+
     printConsole("PROGRESS: Sorting parts into modules...", 1)
     modules = splitPartsToModules(xmlRoot, parts, configuration['modules'])
     for moduleName, moduleParts in modules.items():
         printConsole("MODULE '{}':".format(moduleName), 1)
         printConsole("    PARTS: {}".format(moduleParts.keys()), 1)
-
-    # Execution depending on the given arguments
-
-    # list parts and exit
-    if args.list:
-        printConsole("Parts:", 0)
-        for part in parts:
-            printConsole(part, 0)
-        exit(0)
 
     fileCommentTemplate = """@filename: {filename}
 @created-with: fzz2scad v{version!s} (https://github.com/htho/fzz2scad)
@@ -981,6 +1028,7 @@ if __name__ == "__main__":
 
     # The Template for the output file
     fileTemplate = """{fileComment}
+{export}
 
 {modules}
 """
@@ -995,10 +1043,12 @@ if __name__ == "__main__":
     printConsole("PROGRESS: Creating modules...", 1)
     fileValues['modules'] = []
     for moduleName, moduleParts in modules.items():
-        fileValues['modules'].append(createModuleString(moduleName, moduleParts, args.center, configuration))
+        fileValues['modules'].append(createModuleString(moduleName, moduleParts, configuration))
 
     fileValues['modules'] = sorted(fileValues['modules'])
     fileValues['modules'] = "\n\n\n".join(fileValues['modules'])
+
+    fileValues['export'] = exportString
 
     # The complete file as a string
     fileValues['fileComment'] = fileCommentTemplate.format(**fileValues)
