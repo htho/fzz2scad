@@ -120,7 +120,7 @@ This section is optional, but necessary to center a module.
 {
     "attributes": {},
     "modules": {
-        "MODULENAME": {"default": true, "frames": [], "parts": [], "center": "", "z": "" },
+        "MODULENAME": {"default": true, "frames": [], "parts": [], "center": "", "z": "", "export": {} },
     }
 }
 ```
@@ -157,3 +157,7 @@ Translates the whole module in a way that the center of the given PCB or Hole is
 
 translate the whole module on the z axis.
 
+### `export`
+`..."MODULENAME": {"export": {"INTERNAL_NAME": "EXTERNAL_NAME"} }...`
+
+currently only the z Value of a module can be exported.

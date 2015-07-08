@@ -890,6 +890,7 @@ module {module_name}(){{
         }}
     }}
 }}
+{export}
 """
 
     values = dict()
@@ -897,12 +898,18 @@ module {module_name}(){{
 
     values['module_name'] = moduleName
 
+    values["export"] = list()
+
     translate = [0, 0, 0]
     if "modules" in configuration.keys():
         if moduleName in configuration["modules"].keys():
             module = configuration["modules"][moduleName]
             if "z" in module.keys():
                 translate[2] = Dimension(module["z"]).asMm()
+            if "export" in module.keys():
+                for internal_name, external_name in module["export"].items():
+                    if internal_name == "z":
+                        values["export"].append("{} = ({});".format(external_name, Dimension(module["z"]).asMm()))
             if "center" in module.keys():
                 if module["center"] in moduleParts.keys():
                     printConsole("INFO: centering '{}'".format(module["center"]), 3)
@@ -946,6 +953,9 @@ module {module_name}(){{
 
     values['moduleComment'] = moduleCommentTemplate.format(**values)
     values['moduleComment'] = "/**\n" + txt_prefix_each_line(values['moduleComment'], " * ") + "\n */"
+
+    values["export"] = "\n".join(values["export"])
+
     return moduleTemplate.format(**values)
 
 
