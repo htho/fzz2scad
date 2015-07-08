@@ -5,3 +5,4 @@ Until it is done see:
 
   * [scadlib/HOWTO.md](https://github.com/htho/fzz2scad/blob/master/HOWTO.md)
   * [fzz2scad/testing/README.md](https://github.com/htho/scadlib/blob/master/testing/README.md)
+  * [fzz2scad/JSONCONFIG.md](https://github.com/htho/scadlib/blob/master/fzz2scad/JSONCONFIG.md)

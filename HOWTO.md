@@ -29,6 +29,7 @@ Some Hints:
 ## 2. Create the OpenSCAD Model
 
 ### 2.1. fzz2scad-configuation in Sketch
+see [JSONCONFIG.md](JSONCONFIG.md)
 
 ### 2.2. fzz2scad.py
 
