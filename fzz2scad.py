@@ -400,7 +400,7 @@ class Part:
             data['bottom_handling'] = ""
 
         return"""// Part: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}'
-translate([{partXPos},{partYPos},partZPos]) //position on the PCB
+translate([{partXPos},{partYPos},{partZPos}]) //position on the PCB
 {multmatrix}{{
     {bottom_handling} translate([{xOffset},{yOffset},0]) {module}({params}); {groundplate}
 }}""".format(**data)
