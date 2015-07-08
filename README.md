@@ -9,7 +9,7 @@ depending on the parts library used.
 | PCB in Friting | Model | Frontplate |
 |----------------|-------|------------|
 |![An Example PCB](testing/step_by_step_example/screenshot_pcb.png)|![A Model created from this PCB](testing/step_by_step_example/screenshot_model.png)|![A Frontplate created for this PCB](testing/step_by_step_example/screenshot_frontplate.png)|
-|[switch_and_led.fzz](testing/fritzing/switch_and_led.fzz)|[switch_and_led_frontplate.scad](testing/step_by_step_example/switch_and_led_frontplate.scad)|[switch_and_led_model.scad](testing/step_by_step_example/switch_and_led_model.scad)|
+|[switch_and_led.fzz](testing/fritzing/switch_and_led.fzz)|[switch_and_led_model.scad](testing/step_by_step_example/switch_and_led_model.scad)|[switch_and_led_frontplate.scad](testing/step_by_step_example/switch_and_led_frontplate.scad)|
 
 
 ## Note:
