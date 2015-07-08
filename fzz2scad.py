@@ -27,6 +27,8 @@ import math
 import re
 import json
 import sys
+import collections
+import copy
 
 VERSION = 0.1
 
@@ -145,6 +147,19 @@ def outputHelper(fileContent, outFile):
         with open(outFile, 'w') as f:
             f.write(fileContent)
 
+# ####################### HELPERS #####################################
+
+
+def update(d, u):
+    # from http://stackoverflow.com/a/3233356/1635906
+    for k, v in u.items():
+        if isinstance(v, collections.Mapping):
+            r = update(d.get(k, {}), v)
+            d[k] = r
+        else:
+            d[k] = u[k]
+    return d
+
 # ####################### TXT HELPER FUNCTIONS ########################
 
 
@@ -210,10 +225,7 @@ class Part:
 
     def __init__(self, moduleIdRef, title, partXPos, partYPos, matrix, bottom, attributes, schematicCoords):
         """Create a new part instance. This Constructor will seldom be
-        called directly.
-
-        TODO: Allow regular expressions for finding attributes
-        TODO: merge attributes (attributes may be defined in a regular expression and explicitly)"""
+        called directly."""
 
         self.schematicCoords = schematicCoords
         self.moduleIdRef = moduleIdRef
@@ -223,10 +235,12 @@ class Part:
         self.matrix = matrix
         self.bottom = bottom
         self.module_name = "m" + moduleIdRef
-        if self.title in attributes.keys():
-            self.attributes = attributes[self.title]
-        else:
-            self.attributes = dict()
+
+        self.attributes = dict()
+        for titleExpression, attribute_data in attributes.items():
+            titlePattern = re.compile(titleExpression)
+            if titlePattern.fullmatch(self.title):
+                self.attributes = update(self.attributes, copy.deepcopy(attribute_data))
 
         if "params" in self.attributes.keys():
             self.params = self.attributes.pop("params")
@@ -736,20 +750,11 @@ def transformElement2MatrixString(element):
 
 
 def getParts(xmlRoot, attributes=dict()):
-    """Get a list of the parts ON this PCB"""
     boardsTitles = list()  # which of the parts are boards?
     for boardElement in xmlRoot.findall("./boards/board"):
         boardsTitles = boardsTitles + [boardElement.attrib['instance']]
 
-    # relevant instances ON the pcb.
-    # right now "on" means: geometry.z > 0
-    # TODO: Find a better way to determine if the Part belongs to the
-    # PCB.
     relevantParts = dict()
-
-    # As xml.etree.ElementTree's XPath implementation does not allow
-    # xmlRoot.findall("./instances/instance/views/pcbView/geometry[@z > 0]")
-    # we need to help our self here by selecting them our self.
 
     for instance in xmlRoot.findall("./instances/instance"):
         try:
