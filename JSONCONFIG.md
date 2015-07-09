@@ -46,28 +46,28 @@ These attributes are available
 ```json
 {
     "attributes": {
-        "PARTNAME": {"params": {}, "export": {}, "z": ""}
+        "PARTNAME": {"parameters": {}, "export": {}, "z": ""}
     },
     "modules": {}
 }
 ```
 
-### `params`
-`..."PARTNAME": {"params": {"pcbHeight": "VALUE"} }...`
+### `parameters`
+`..."PARTNAME": {"parameters": {"pcbHeight": "VALUE"} }...`
 
 Some models of parts need parameters that can not be extracted from the
 sketch. For example PCBs may have different heights (=z dimension). There
 is no way to extract this information as there are 1.2mm and 1.6mm PCBs.
 
-#### `params` for Parts
+#### `parameters` for Parts
   * `drillDepth`: mandatory for drill only models
   * `distanceFromPCB`: currently for the pro_micro and leds.
   * ?: In general the models define their parameters.
 
-#### `params` for Holes
+#### `parameters` for Holes
   * `drillDepth`: probably just a little more than `pcbHeight`
 
-#### `params` for PCBs
+#### `parameters` for PCBs
   * `pcbHeight`: The height of this PCB
   
 
@@ -97,7 +97,7 @@ as a variable.
 #### Exportable Values for PCBs
   * `width` (horizontal dimension `x` in Fritzing and OpenSCAD)
   * `depth` (vertical dimension `y` in Fritzing and OpenSCAD (=height in Fritzing))
-  * `pcbHeight` (taken from the `params`, dimension `z` OpenSCAD (=height in OpenSCAD))
+  * `pcbHeight` (taken from the `parameters`, dimension `z` OpenSCAD (=height in OpenSCAD))
   * `x` (x Position of the top left corner) NOT IMPLEMENTED YET!
   * `y` (y Position of the top left corner) NOT IMPLEMENTED YET!
   * `z` (z Position of the top left corner depending on the z position of the module and the z attribute of this pcb) NOT IMPLEMENTED YET!
