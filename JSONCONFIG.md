@@ -96,7 +96,7 @@ as a variable.
 
 #### Exportable Values for PCBs
   * `width` (horizontal dimension `x` in Fritzing and OpenSCAD)
-  * `height` (vertical dimension `y` in Fritzing and OpenSCAD (=depth in OpenSCAD))
+  * `depth` (vertical dimension `y` in Fritzing and OpenSCAD (=height in Fritzing))
   * `pcbHeight` (taken from the `params`, dimension `z` OpenSCAD (=height in OpenSCAD))
   * `x` (x Position of the top left corner) NOT IMPLEMENTED YET!
   * `y` (y Position of the top left corner) NOT IMPLEMENTED YET!

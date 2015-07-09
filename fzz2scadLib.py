@@ -738,12 +738,16 @@ def transformMatrixElement2AngleAndTranslationVector(element):
 
     translation = [data['m31'], data['m32'], 0]
 
-    if math.acos(data['m11']) == -math.asin(data['m12']) == math.asin(data['m21']) == math.acos(data['m22']):
-        angle = math.degrees(math.acos(data['m11']))
-    else:
-        raise RuntimeError("Could not calculate angle from matrix. The values are inconsistent.")
+    printConsole(math.degrees(math.acos(float(data['m11']))), 0)
+    printConsole(math.degrees(-math.asin(float(data['m12']))), 0)
+    printConsole(math.degrees(math.asin(float(data['m21']))), 0)
+    printConsole(math.degrees(math.acos(float(data['m22']))), 0)
 
-    return (angle, translation)
+#    if math.acos(data['m11']) == -math.asin(data['m12']) == math.asin(data['m21']) == math.acos(data['m22']):
+#        angle = math.degrees(math.acos(data['m11']))
+#    else:
+#        raise RuntimeError("Could not calculate angle from matrix. The values are inconsistent.")
+    return (math.degrees(math.acos(Dimension(data['m11']).asMm())), translation)
 
 
 def transformElement2MatrixString(element):
@@ -751,6 +755,8 @@ def transformElement2MatrixString(element):
     http://qt-project.org/doc/qt-4.8/qtransform.html
     https://en.wikibooks.org/wiki/OpenSCAD_User_Manual/Transformations#multmatrix
     http://forum.openscad.org/Multmatrix-and-its-mysterious-4th-row-for-idiots-td10506.html"""
+
+    # printErrorConsole(transformMatrixElement2AngleAndTranslationVector(element), 0)
 
     if element is None:
         return None
