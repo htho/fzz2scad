@@ -174,7 +174,7 @@ def getPrototype(moduleIdRef):
             partPrototypes[moduleIdRef]['svgWidth'] = Dimension("0.075in")
             partPrototypes[moduleIdRef]['svgHeight'] = Dimension("0.075in")
 
-            # position of center IN the svg.
+            # positionInSketch of center IN the svg.
             partPrototypes[moduleIdRef]['svgOffsetX'] = Dimension("27.7") * (Dimension("0.075in") / Dimension("75"))
             partPrototypes[moduleIdRef]['svgOffsetY'] = -(Dimension("27.7") * (Dimension("0.075in") / Dimension("75")))
 
@@ -200,7 +200,7 @@ def getPrototype(moduleIdRef):
             partPrototypes[moduleIdRef]['svgWidth'] = Dimension(svgRoot.find(".").attrib['width'])
             partPrototypes[moduleIdRef]['svgHeight'] = Dimension(svgRoot.find(".").attrib['height'])
 
-            # position of connector0 IN the svg.
+            # positionInSketch of connector0 IN the svg.
             partPrototypes[moduleIdRef]['svgOffsetX'] = Dimension(svgConnector0Element.attrib['cx']) * viewBoxWidthOfAUnit
             partPrototypes[moduleIdRef]['svgOffsetY'] = Dimension(svgConnector0Element.attrib['cy']) * viewBoxHeightOfAUnit
 
@@ -266,7 +266,8 @@ def txt_match_in_patternset(string, patternset):
 
 
 class AbstractPart:
-    def __init__(self, moduleIdRef, title, xPos, yPos, matrix, attributes):
+
+    def __init__(self, moduleIdRef, title, xPos, yPos, rotationAndTranslationVectors, attributes):
         """Create a new part instance. This Constructor will seldom be
         called directly."""
 
@@ -278,44 +279,45 @@ class AbstractPart:
 
         self.title = title
 
-        self.xPos = xPos
-        self.yPos = yPos
-
-        self.matrix = matrix
+        self.rotation = rotationAndTranslationVectors[0]
+        self.translationRotation = rotationAndTranslationVectors[1]
 
         self.attributes = dict()
         for titleExpression, attribute_data in attributes.items():
             titlePattern = re.compile(titleExpression)
             if titlePattern.fullmatch(self.title):
                 self.attributes = update(self.attributes, copy.deepcopy(attribute_data))
-        self.zPos = Dimension(0)
+
+        zPos = Dimension(0)
 
         if "z" in self.attributes.keys():
-            self.zPos = Dimension(self.attributes.pop("z"))
+            zPos = Dimension(self.attributes.pop("z"))
 
-        self.params = dict()
-        if "params" in self.attributes.keys():
-            self.params = self.attributes.pop("params")
+        self.positionInSketch = (xPos, yPos, zPos)
+
+        self.positionAbsolute = (self.positionInSketch[0] + self.translationRotation[0], self.positionInSketch[1] + self.translationRotation[1], self.positionInSketch[2] + self.translationRotation[2])
+
+        self.parameters = dict()
+        if "parameters" in self.attributes.keys():
+            self.parameters = self.attributes.pop("parameters")
 
     def export(self, internal_name):
         if internal_name == "title":
             return self.title
-        elif internal_name == "x":
-            return self.xPos.asMm()
-        elif internal_name == "y":
-            return self.yPos.asMm()
-        elif internal_name == "z":
-            return self.zPos.asMm()
-        elif internal_name == "xyz":
-            return [self.export("x"), self.export("y"), self.export("z")]
+        elif internal_name == "positionInSketch":
+            return Dimension.dimensionList2MmList(self.positionInSketch)
+        elif internal_name == "positionAbsolute":
+            return Dimension.dimensionList2MmList(self.positionAbsolute)
         elif internal_name == "rotation":
-            return None
+            return list(self.rotation)
+        elif internal_name == "translationRotation":
+            return Dimension.dimensionList2MmList(self.translationRotation)
         else:
             return None
 
-    def paramsAsString(self):
+    def parametersAsString(self):
         ret = []
-        for k, v in self.params.items():
+        for k, v in self.parameters.items():
             v = Dimension(v)
             ret.append("{}={}".format(k, v.asMm()))
         return ",".join(ret)
@@ -328,17 +330,13 @@ class AbstractPart:
         # Information extracted from the sketch
         data['moduleIdRef'] = self.moduleIdRef
         data['title'] = self.title
-        data['xPos'] = self.xPos.asMm()
-        data['yPos'] = self.yPos.asMm()
-        data['zPos'] = self.zPos.asMm()
+        data['positionInSketch'] = Dimension.dimensionList2MmList(self.positionInSketch)
+        data['rotation'] = str(list(self.rotation))
+        data['translationRotation'] = Dimension.dimensionList2MmList(self.translationRotation)
 
         # Information extracted from the configuration
         data['attributes'] = self.attributes
-        data['params'] = self.paramsAsString()
-
-        data['matrix'] = ""
-        if self.matrix is not None:
-            data['matrix'] = "multmatrix(m=" + txt_prefix_each_line(self.matrix, "    ", ignorefirst=True, ignorelast=True) + ") //rotation and translation\n"
+        data['parameters'] = self.parametersAsString()
 
         return data
 
@@ -379,19 +377,23 @@ class Part(AbstractPart):
             instanceXmlElement.find("./title").text,
             xPos,
             yPos,
-            transformElement2MatrixString(instanceXmlElement.find("./views/pcbView/geometry/transform")),
+            transformMatrixElement2RotationAndTranslationVector(instanceXmlElement.find("./views/pcbView/geometry/transform")),
             attributes,
             bottom,
             schematicCoords
         )
 
-    def __init__(self, moduleIdRef, title, xPos, yPos, matrix, attributes, bottom, schematicCoords):
+    def __init__(self, moduleIdRef, title, xPos, yPos, rotationAndTranslationVectors, attributes, bottom, schematicCoords):
         """Create a new part instance. This Constructor will seldom be
         called directly."""
-        super().__init__(moduleIdRef, title, xPos, yPos, matrix, attributes)
+        super().__init__(moduleIdRef, title, xPos, yPos, rotationAndTranslationVectors, attributes)
         self.bottom = bottom
         self.schematicCoords = schematicCoords
         self.prototype = getPrototype(self.moduleIdRef)
+
+        self.svgDimension = (self.prototype['svgWidth'], self.prototype['svgHeight'], Dimension(0))
+        self.svgOffset = (self.prototype['svgOffsetX'], self.prototype['svgOffsetY'], Dimension(0))
+        self.positionAbsolute = (self.positionAbsolute[0] + self.svgOffset[0], self.positionAbsolute[1] + self.svgOffset[1], self.positionAbsolute[2] + self.svgOffset[2])
 
     def export(self, internal_name):
         if internal_name == "isBottom":
@@ -399,6 +401,10 @@ class Part(AbstractPart):
                 return 1
             else:
                 return 0
+        elif internal_name == "svgOffset":
+            return Dimension.dimensionList2MmList(self.svgOffset)
+        elif internal_name == "svgDimension":
+            return Dimension.dimensionList2MmList(self.svgDimension)
         else:
             return AbstractPart.export(self, internal_name)
 
@@ -406,19 +412,18 @@ class Part(AbstractPart):
         data = AbstractPart._getInfoText(self)
 
         # Information about the prototype
-        data['svgWidth'] = self.prototype['svgWidth'].asMm()
-        data['svgHeight'] = self.prototype['svgHeight'].asMm()
-        data['svgOffsetX'] = self.prototype['svgOffsetX'].asMm()
-        data['svgOffsetY'] = self.prototype['svgOffsetY'].asMm()
+        data['svgDimension'] = Dimension.dimensionList2MmList(self.svgDimension)
+        data['svgOffset'] = Dimension.dimensionList2MmList(self.svgOffset)
 
-        data['bottom_handling'] = ""
+        data['mirror'] = [0, 0, 0]
         if self.bottom:
-            data['bottom_handling'] = "mirror([0,0,1])"
+            data['mirror'] = [0, 0, 1]
 
-        data['groundplateHeight'] = 1.0  # How tall should the groundplate be?
+        groundplateHeight = Dimension(1.0, "mm")  # How tall should the groundplate be?
+        groundplateCube = Dimension.dimensionList2MmList(((self.svgDimension[0]), (self.svgDimension[1]), (groundplateHeight)))
         data['groundplate'] = ""
         if showGroundplate:
-            data['groundplate'] = "%translate([{svgWidth}/2,-{svgHeight}/2,{zPos}-{groundplateHeight}/2]) cube([{svgWidth},{svgHeight},{groundplateHeight}],true);".format(**data)
+            data['groundplate'] = "mirror([0, 1, 0]) %cube({groundplateCube},false);".format(groundplateCube=groundplateCube, **data)
 
         return data
 
@@ -427,14 +432,20 @@ class Part(AbstractPart):
         data = self._getInfoText(showGroundplate)
         data["selfStr"] = str(self)
         return """// {selfStr}
-translate([{xPos},{yPos},{zPos}]) //position on the PCB
-{matrix}{{
-    {bottom_handling} translate([{svgOffsetX},{svgOffsetY},0]) {module_name} ({params}); {groundplate}
-}}""".format(**data)
+translate({positionInSketch}) //position in the Sketch
+  translate({translationRotation}) //translation that corrects the rotation
+    rotate({rotation}) //rotation
+      mirror({mirror}) //mirror if on bottom
+      {{
+        {groundplate}
+        translate({svgOffset}) /* translation for the position of connector0 in the svg */
+          {module_name}({parameters});
+      }}
+""".format(**data)
 
     def __str__(self):
         data = self._getInfoText()
-        return "Part: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}', attributes: '{attributes}', params: '{params}', xPos: '{xPos}mm', yPos: '{yPos}mm', zPos: '{zPos}mm'".format(**data)
+        return "Part: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}', attributes: '{attributes}', parameters: '{parameters}', positionInSketch: '{positionInSketch}mm'".format(**data)
 
 
 class Hole(AbstractPart):
@@ -461,24 +472,39 @@ class Hole(AbstractPart):
             title,
             xPos,
             yPos,
-            transformElement2MatrixString(instanceXmlElement.find("./views/pcbView/geometry/transform")),
+            transformMatrixElement2RotationAndTranslationVector(instanceXmlElement.find("./views/pcbView/geometry/transform")),
             diameterValue,
             attributes
         )
 
-    def __init__(self, moduleIdRef, title, xPos, yPos, matrix, diameter, attributes):
-        super().__init__(moduleIdRef, title, xPos, yPos, matrix, attributes)
+    def __init__(self, moduleIdRef, title, xPos, yPos, rotationAndTranslationVectors, diameter, attributes):
+        super().__init__(moduleIdRef, title, xPos, yPos, rotationAndTranslationVectors, attributes)
         self.diameter = diameter
 
-        if "drillDepth" not in self.params:
-            raise AttributeError('A Hole must have the parameter \'drillDepth\'. Add a note like this to the PCB Layer: {{"attributes": {{"{}":{{"params":"drillDepth=50"}}}}\nNote that the diameter is extracted from the sketch, so it must not be set as attribute here.'.format(self.title))
-        self.params['diameter'] = str(self.diameter)
+        if "drillDepth" not in self.parameters:
+            raise AttributeError('A Hole must have the parameter \'drillDepth\'. Add a note like this to the PCB Layer: {{"attributes": {{"{}":{{"parameters":"drillDepth=50"}}}}\nNote that the diameter is extracted from the sketch, so it must not be set as attribute here.'.format(self.title))
+        self.parameters['diameter'] = str(self.diameter)
 
         self.prototype = getPrototype(moduleIdRef)
+        # Information about the prototype
+
+        svgWidth = Dimension(self.prototype['svgWidth'].asMm() * self.diameter.asMm(), "mm")
+        svgHeight = Dimension(self.prototype['svgHeight'].asMm() * self.diameter.asMm(), "mm")
+        self.svgDimension = (svgWidth, svgHeight, Dimension(0))
+
+        svgOffsetX = Dimension(self.prototype['svgOffsetX'].asMm() * self.diameter.asMm(), "mm")
+        svgOffsetY = Dimension(self.prototype['svgOffsetY'].asMm() * self.diameter.asMm(), "mm")
+        self.svgOffset = (svgOffsetX, svgOffsetY, Dimension(0))
+
+        self.positionAbsolute = (self.positionAbsolute[0] + self.svgOffset[0], self.positionAbsolute[1] + self.svgOffset[1], self.positionAbsolute[2] + self.svgOffset[2])
 
     def export(self, internal_name):
         if internal_name == "diameter":
             return self.diameter.asMm()
+        elif internal_name == "svgOffset":
+            return Dimension.dimensionList2MmList(self.svgOffset)
+        elif internal_name == "svgDimension":
+            return Dimension.dimensionList2MmList(self.svgDimension)
         else:
             return AbstractPart.export(self, internal_name)
 
@@ -486,15 +512,16 @@ class Hole(AbstractPart):
         data = AbstractPart._getInfoText(self)
 
         # Information about the prototype
-        data['svgWidth'] = self.prototype['svgWidth'].asMm() * Dimension(self.params["diameter"]).asMm()
-        data['svgHeight'] = self.prototype['svgHeight'].asMm() * Dimension(self.params["diameter"]).asMm()
-        data['svgOffsetX'] = self.prototype['svgOffsetX'].asMm() * Dimension(self.params["diameter"]).asMm()
-        data['svgOffsetY'] = self.prototype['svgOffsetY'].asMm() * Dimension(self.params["diameter"]).asMm()
+        data['svgDimension'] = Dimension.dimensionList2MmList(self.svgDimension)
+        data['svgOffset'] = Dimension.dimensionList2MmList(self.svgOffset)
 
-        data['groundplateHeight'] = 1.0  # How tall should the groundplate be?
+        data['diameter'] = self.diameter.asMm()
+
+        groundplateHeight = Dimension(1.0, "mm")  # How tall should the groundplate be?
+        groundplateCube = Dimension.dimensionList2MmList(((self.svgDimension[0]), (self.svgDimension[1]), (groundplateHeight)))
         data['groundplate'] = ""
         if showGroundplate:
-            data['groundplate'] = "%translate([{svgWidth}/2,-{svgHeight}/2,{zPos}-{groundplateHeight}/2]) cube([{svgWidth},{svgHeight},{groundplateHeight}],true);".format(**data)
+            data['groundplate'] = "%mirror([0, 1, 0]) cube({groundplateCube}, true);".format(groundplateCube=groundplateCube, **data)
 
         return data
 
@@ -502,18 +529,24 @@ class Hole(AbstractPart):
         """get a string representation to be used in an scad file."""
         data = self._getInfoText(showGroundplate)
         data["selfStr"] = str(self)
-        return"""// {selfStr}
-translate([{xPos},{yPos},{zPos}]) //position on the PCB
-{matrix}{{
-    translate([{svgOffsetX},{svgOffsetY},0]) {module_name}({params}); {groundplate}
-}}""".format(**data)
+        return """// {selfStr}
+translate({positionInSketch}) //position in the sketch
+  translate({translationRotation}) //translation that corrects the rotation
+    rotate({rotation}) //rotation
+      translate({svgOffset}) /* translation for the xy position in the svg */
+      {{
+        {groundplate}
+        {module_name}({parameters});
+      }}
+""".format(**data)
 
     def __str__(self):
-        return "Hole: module_name: '{}', moduleIdRef: '{}', title: '{}', attributes: '{}', params: '{}', HoleXPos: '{}mm', HoleYPos: '{}mm', HoleZPos: '{}mm', matrix: '{}', diameter: '{}mm'".format(self.module_name, self.moduleIdRef, self.title, self.attributes, self.params, self.xPos.asMm(), self.yPos.asMm(), self.zPos.asMm(), self.matrix, self.diameter.asMm())
+        data = self._getInfoText()
+        return "Part: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}', attributes: '{attributes}', parameters: '{parameters}', positionInSketch: '{positionInSketch}mm', diameter: '{diameter}mm'".format(**data)
 
 
 class PCB(AbstractPart):
-    """A Part representing a PCB with the given dimensions."""
+    """A PCB."""
 
     @staticmethod
     def buildFromInstanceXmlElement(instanceXmlElement, xmlRoot, attributes):
@@ -533,57 +566,47 @@ class PCB(AbstractPart):
             title,
             xPos,
             yPos,
-            transformElement2MatrixString(instanceXmlElement.find("./views/pcbView/geometry/transform")),
+            transformMatrixElement2RotationAndTranslationVector(instanceXmlElement.find("./views/pcbView/geometry/transform")),
             Dimension(boardXmlElement.attrib['width']),
             Dimension(boardXmlElement.attrib['height']),
             attributes
         )
 
-    def __init__(self, moduleIdRef, title, xPos, yPos, matrix, width, depth, attributes):
-        # A PCB can't be on the bottom. It is not represented in the schematic.
-        super().__init__(moduleIdRef, title, xPos, yPos, matrix, attributes)
-        self.width = width
-        self.depth = depth
+    def __init__(self, moduleIdRef, title, xPos, yPos, rotationAndTranslationVectors, width, depth, attributes):
+        super().__init__(moduleIdRef, title, xPos, yPos, rotationAndTranslationVectors, attributes)
 
-        self.params['width'] = str(self.width)
-        self.params['depth'] = str(self.depth)
-        if "pcbHeight" not in self.params.keys():
-            raise AttributeError('A PCB must have the parameter \'pcbHeight\'. Add a note like this to the PCB Layer: {{"attributes": {{"{}":{{"params":"{{"pcbHeight"="1.2mm"}}}}}}}}'.format(self.title))
+        if "pcbHeight" not in self.parameters.keys():
+            raise AttributeError('A PCB must have the parameter \'pcbHeight\'. Add a note like this to the PCB Layer: {{"attributes": {{"{}":{{"parameters":"{{"pcbHeight"="1.2mm"}}}}}}}}'.format(self.title))
+
+        self.dimensions = (width, depth, Dimension(self.parameters["pcbHeight"]))
+
+        self.parameters['width'] = str(self.dimensions[0])
+        self.parameters['depth'] = str(self.dimensions[1])
 
     def export(self, internal_name):
-        if internal_name == "width":
-            return self.width.asMm()
-        elif internal_name == "depth":
-            return self.depth.asMm()
-        elif internal_name == "pcbHeight":
-            return Dimension(self.params["pcbHeight"]).asMm()
-        elif internal_name == "wdh":
-            return [self.export("width"), self.export("depth"), self.export("pcbHeight")]
+        if internal_name == "dimensions":
+            return Dimension.dimensionList2MmList(self.dimensions)
         else:
             return AbstractPart.export(self, internal_name)
 
     def _getInfoText(self, showGroundplate=False):
         data = AbstractPart._getInfoText(self)
-
-        data['width'] = str(self.width)
-        data['depth'] = str(self.depth)
-        data['pcbHeight'] = str(Dimension(self.params['pcbHeight']))
-
         return data
 
-    def asScad(self):
+    def asScad(self, showGroundplate=False):
         """get a string representation to be used in an scad file."""
-        data = self._getInfoText()
+        data = self._getInfoText(showGroundplate)
         data["selfStr"] = str(self)
         return """// {selfStr}
-translate([{xPos},{yPos},{zPos}]) //position
-{matrix}{{
-    {module_name} ({params});
-}}""".format(**data)
+translate({positionInSketch}) //position in the sketch
+  translate({translationRotation}) //translation that corrects the rotation
+    rotate({rotation}) //rotation
+      {module_name}({parameters});
+""".format(**data)
 
     def __str__(self):
         data = self._getInfoText()
-        return "PCB: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}', attributes: '{attributes}', params: '{params}', xPos: '{xPos}mm', yPos: '{yPos}mm',  zPos: '{zPos}mm', matrix: '{matrix}', width: '{width}mm', depth: '{depth}mm', pcbHeight: '{pcbHeight}mm'".format(**data)
+        return "PCB: module_name: '{module_name}', moduleIdRef: '{moduleIdRef}', title: '{title}', attributes: '{attributes}', parameters: '{parameters}', positionInSketch: '{positionInSketch}''".format(**data)
 
 
 class Dimension:
@@ -716,19 +739,63 @@ class Dimension:
         ret.value = -self.value
         return ret
 
+    @staticmethod
+    def dimensionList2MmList(v):
+        ret = list()
+        for i in v:
+            ret.append(i.asMm())
+        return ret
+
 # ###################### STRING HELPERS ########################
 
 
-def transformMatrixElement2AngleAndTranslationVector(element):
+def transformMatrixToRotationVectorAndTranslationVector(m):
+    """staff.city.ac.uk/~sbbh653/publications/euler.pdf"""
+    translationVector = (m[0][3], m[1][3], m[2][3])
+
+    if m[2][0] != 1 or m[2][0] != -1:
+        theta1 = -math.asin(m[2][0])
+        theta2 = math.pi - theta1
+        psi1 = math.atan2((m[2][1] / math.cos(theta1)), (m[2][2] / math.cos(theta1)))
+        psi2 = math.atan2((m[2][1] / math.cos(theta2)), (m[2][2] / math.cos(theta2)))
+        phi1 = math.atan2((m[1][0] / math.cos(theta1)), (m[0][0] / math.cos(theta1)))
+        phi2 = math.atan2((m[1][0] / math.cos(theta2)), (m[0][0] / math.cos(theta2)))
+
+        psi = (math.degrees(psi1), math.degrees(psi2))
+        theta = (math.degrees(theta1), math.degrees(theta2))
+        phi = (math.degrees(phi1), math.degrees(phi2))
+        zeros = [0, 0]
+        for v in (psi, theta, phi):
+            if v[0] == 0:
+                zeros[0] = zeros[0] + 1
+            if v[1] == 0:
+                zeros[1] = zeros[1] + 1
+        if zeros[0] > zeros[1]:
+            return ((psi[0], theta[0], phi[0]), translationVector)
+        else:
+            return ((psi[1], theta[1], phi[1]), translationVector)
+
+    else:
+        phi = 0
+        if m[2][0] == -1:
+            theta = math.pi / 2
+            psi = phi + math.atan2(m[0][1], m[0][2])
+        else:
+            theta = -math.pi / 2
+            psi = -phi + math.atan2(-m[0][1], -m[0][2])
+        return ((math.degrees(psi), math.degrees(theta), math.degrees(phi)), translationVector)
+
+
+def transformMatrixElement2RotationAndTranslationVector(element):
     """Get a OpenSCAD compatible 4x4 matrix of the given 3x3 Qtransform Matrix.
     http://qt-project.org/doc/qt-4.8/qtransform.html
     https://en.wikibooks.org/wiki/OpenSCAD_User_Manual/Transformations#multmatrix
     http://forum.openscad.org/Multmatrix-and-its-mysterious-4th-row-for-idiots-td10506.html"""
 
     if element is None:
-        return None
-
+        return ((0, 0, 0), (Dimension(0), Dimension(0), Dimension(0)))
     data = dict(element.attrib)
+
     data['m31'] = Dimension(data['m31']).asMm()
     data['m32'] = Dimension(data['m32']).asMm()
 
@@ -736,18 +803,17 @@ def transformMatrixElement2AngleAndTranslationVector(element):
     # from positive y to negative y:
     data['m32'] = -data['m32']
 
-    translation = [data['m31'], data['m32'], 0]
+    m = [
+        [float(data['m11']), float(data['m12']), 0, float(data['m31'])],
+        [float(data['m21']), float(data['m22']), 0, float(data['m32'])],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1]
+    ]
+    r = transformMatrixToRotationVectorAndTranslationVector(m)
+    rotationVector = r[0]
+    translationVector = (Dimension(r[1][0], "mm"), Dimension(r[1][1], "mm"), Dimension(r[1][2], "mm"))
 
-    printConsole(math.degrees(math.acos(float(data['m11']))), 0)
-    printConsole(math.degrees(-math.asin(float(data['m12']))), 0)
-    printConsole(math.degrees(math.asin(float(data['m21']))), 0)
-    printConsole(math.degrees(math.acos(float(data['m22']))), 0)
-
-#    if math.acos(data['m11']) == -math.asin(data['m12']) == math.asin(data['m21']) == math.acos(data['m22']):
-#        angle = math.degrees(math.acos(data['m11']))
-#    else:
-#        raise RuntimeError("Could not calculate angle from matrix. The values are inconsistent.")
-    return (math.degrees(math.acos(Dimension(data['m11']).asMm())), translation)
+    return (rotationVector, translationVector)
 
 
 def transformElement2MatrixString(element):
@@ -755,8 +821,6 @@ def transformElement2MatrixString(element):
     http://qt-project.org/doc/qt-4.8/qtransform.html
     https://en.wikibooks.org/wiki/OpenSCAD_User_Manual/Transformations#multmatrix
     http://forum.openscad.org/Multmatrix-and-its-mysterious-4th-row-for-idiots-td10506.html"""
-
-    # printErrorConsole(transformMatrixElement2AngleAndTranslationVector(element), 0)
 
     if element is None:
         return None
@@ -908,21 +972,21 @@ def splitPartsToModules(xmlRoot, parts, configModules):
     return ret
 
 
-def createModuleString(moduleName, moduleParts, configuration):
+def createModuleString(moduleName, moduleParts, configuration, showGroundplate):
     moduleCommentTemplate = """
 @created-with: fzz2scad v{version!s} (https://github.com/htho/fzz2scad)
 {module-dependencies}
 """
     moduleTemplate = """{moduleComment}
 module {module_name}(){{
-    {translate}{{
-        difference(){{
-            union(){{
+  {translate}{{
+    difference(){{
+      union(){{
 {parts}
-            }}
+      }}
 {holes}
-        }}
     }}
+  }}
 }}
 {export}
 """
@@ -932,7 +996,7 @@ module {module_name}(){{
 
     values['module_name'] = moduleName
 
-    values["export"] = list()
+    values["export"] = dict()  # external_name, value
 
     translate = [0, 0, 0]
     if "modules" in configuration.keys():
@@ -940,27 +1004,30 @@ module {module_name}(){{
             module = configuration["modules"][moduleName]
             if "z" in module.keys():
                 translate[2] = Dimension(module["z"]).asMm()
-            if "export" in module.keys():
-                for internal_name, external_name in module["export"].items():
-                    if internal_name == "z":
-                        values["export"].append("{} = ({});".format(external_name, Dimension(module["z"]).asMm()))
             if "center" in module.keys():
                 if module["center"] in moduleParts.keys():
                     printConsole("INFO: centering '{}'".format(module["center"]), 3)
                     centerEntity = moduleParts[module["center"]]
                     if isinstance(centerEntity, PCB):
-                        translate[0] = - (centerEntity.width.asMm() / 2) - centerEntity.xPos.asMm()
-                        translate[1] = (centerEntity.depth.asMm() / 2) - centerEntity.yPos.asMm()
+                        translate[0] = - (centerEntity.dimensions[0].asMm() / 2) - centerEntity.positionInSketch[0].asMm()
+                        translate[1] = (centerEntity.dimensions[1].asMm() / 2) - centerEntity.positionInSketch[1].asMm()
                     elif isinstance(centerEntity, Hole):
                         proto = Part.getPrototype("HoleModuleID")
-                        translate[0] = -(centerEntity.xPos.asMm() + proto['xOffset'].asMm() * Dimension(centerEntity.params["diameter"]).asMm())
-                        translate[1] = -(centerEntity.yPos.asMm() + proto['yOffset'].asMm() * Dimension(centerEntity.params["diameter"]).asMm())
+                        translate[0] = (-(centerEntity.positionInSketch[0] + (proto['svgOffsetX'] * Dimension(centerEntity.parameters["diameter"])))).asMm()
+                        translate[1] = (-(centerEntity.positionInSketch[1] + (proto['svgOffsetY'] * Dimension(centerEntity.parameters["diameter"])))).asMm()
 #                    elif isinstance(centerEntity, Part):
 #                         # TODO Test
-#                         translate[0] = -(centerEntity.xPos.asMm() + proto['xOffset'].asMm())
-#                         translate[1] = -(centerEntity.yPos.asMm() + proto['yOffset'].asMm())
+#                         translate[0] = -(centerEntity.positionInSketch[0].asMm() + proto['svgOffsetX'].asMm())
+#                         translate[1] = -(centerEntity.positionInSketch[1].asMm() + proto['svgOffsetY'].asMm())
                     else:
                         raise RuntimeError("Can only center PCBs and Holes.")
+            if "export" in module.keys():
+                for internal_name, external_name in module["export"].items():
+                    if internal_name == "z":
+                        values["export"][external_name] = Dimension(module["z"]).asMm()
+                    elif internal_name == "position":
+                        values["export"][external_name] = translate
+
     values['translate'] = "translate({})".format(repr(translate))
 
     values['holes'] = []
@@ -969,18 +1036,21 @@ module {module_name}(){{
 
     for partName, partInstance in moduleParts.items():
         if isinstance(partInstance, Hole):
-            values['holes'].append(partInstance.asScad())
-        else:
+            values['holes'].append(partInstance.asScad(showGroundplate))
+        elif isinstance(partInstance, PCB):
             values['parts'].append(partInstance.asScad())
+        else:
+            values['parts'].append(partInstance.asScad(showGroundplate))
+
         values['module-dependencies'].append("@module-dependency: " + partInstance.module_name)
 
     values['parts'] = sorted(values['parts'])
-    values['parts'] = "\n\n\n".join(values['parts'])
-    values['parts'] = txt_prefix_each_line(values['parts'], "                    ")
+    values['parts'] = "\n".join(values['parts'])
+    values['parts'] = txt_prefix_each_line(values['parts'], "        ")
 
     values['holes'] = sorted(values['holes'])
-    values['holes'] = "\n\n\n".join(values['holes'])
-    values['holes'] = txt_prefix_each_line(values['holes'], "                    ")
+    values['holes'] = "\n".join(values['holes'])
+    values['holes'] = txt_prefix_each_line(values['holes'], "      ")
 
     values['module-dependencies'] = sorted(set(values['module-dependencies']))
     values['module-dependencies'] = "\n".join(values['module-dependencies'])
@@ -988,7 +1058,10 @@ module {module_name}(){{
     values['moduleComment'] = moduleCommentTemplate.format(**values)
     values['moduleComment'] = "/**\n" + txt_prefix_each_line(values['moduleComment'], " * ") + "\n */"
 
-    values["export"] = "\n".join(values["export"])
+    export = list()
+    for external_name, value in values["export"].items():
+        export.append("{} = ({});".format(external_name, value))
+    values["export"] = "\n".join(export)
 
     return moduleTemplate.format(**values)
 

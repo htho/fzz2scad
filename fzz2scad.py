@@ -108,7 +108,7 @@ if __name__ == "__main__":
     lib.printConsole("PROGRESS: Creating modules...", 1)
     fileValues['modules'] = []
     for moduleName, moduleParts in modules.items():
-        fileValues['modules'].append(lib.createModuleString(moduleName, moduleParts, configuration))
+        fileValues['modules'].append(lib.createModuleString(moduleName, moduleParts, configuration, args.show_groundplate))
 
     fileValues['modules'] = sorted(fileValues['modules'])
     fileValues['modules'] = "\n\n\n".join(fileValues['modules'])

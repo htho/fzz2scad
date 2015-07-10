@@ -71,38 +71,31 @@ is no way to extract this information as there are 1.2mm and 1.6mm PCBs.
   * `pcbHeight`: The height of this PCB
   
 
-### `export` PARTLY IMPLEMENTED
+### `export`
 `..."PARTNAME": {"export": {"INTERNAL_NAME": "EXTERNAL_NAME"} }...`
 
 Sometimes some parameters of the model are needed outside of the model
 as a variable.
 
+#### Exportable Values for all Items
+  * `title`
+  * `positionInSketch`
+  * `positionAbsolute` The position of connector0, the center of a hole, or the top-left corner of a PCB.
+  * `rotation`
+  * `translationRotation`
 
 #### Exportable Values for Parts
-  * `x` (x Position of connector0) NOT IMPLEMENTED YET!
-  * `y` (y Position of connector0) NOT IMPLEMENTED YET!
-  * `z` (y Position of connector0 depending on the z position of the module and the z attribute of this part) NOT IMPLEMENTED YET!
-  * `rotation` NOT IMPLEMENTED YET!
-  * `title`
   * `isBottom` (0=top; 1=bottom)
-
+  * `svgOffset`
+  * `svgDimension`
+  
 #### Exportable Values for Holes
   * `diameter`
-  * `x` (x Position of the center) NOT IMPLEMENTED YET!
-  * `y` (y Position of the center) NOT IMPLEMENTED YET!
-  * `z` (y Position of the center depending on the z position of the module and the z attribute of this hole) NOT IMPLEMENTED YET!
-  * `rotation` NOT IMPLEMENTED YET!
-  * `title`
+  * `svgOffset`
+  * `svgDimension`
 
 #### Exportable Values for PCBs
-  * `width` (horizontal dimension `x` in Fritzing and OpenSCAD)
-  * `depth` (vertical dimension `y` in Fritzing and OpenSCAD (=height in Fritzing))
-  * `pcbHeight` (taken from the `parameters`, dimension `z` OpenSCAD (=height in OpenSCAD))
-  * `x` (x Position of the top left corner) NOT IMPLEMENTED YET!
-  * `y` (y Position of the top left corner) NOT IMPLEMENTED YET!
-  * `z` (z Position of the top left corner depending on the z position of the module and the z attribute of this pcb) NOT IMPLEMENTED YET!
-  * `rotation` NOT IMPLEMENTED YET!
-  * `title`
+  * `dimensions`
 
 ### `z`
 `..."PARTNAME": {"z": "VALUE" }...`
@@ -160,4 +153,5 @@ translate the whole module on the z axis.
 ### `export`
 `..."MODULENAME": {"export": {"INTERNAL_NAME": "EXTERNAL_NAME"} }...`
 
-currently only the z Value of a module can be exported.
+  * `z`
+  * `position`
