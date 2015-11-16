@@ -13,8 +13,7 @@ depending on the parts library used.
 
 
 ## Note:
-This tool is quite young and I did not have a chance yet to actually print
-a case or a frontplate. Please share your experiences with me at the
+This tool is quite young. I have used it to create a case for a project, which I will upload to github sooner or later. Anyway, please share your experiences with me at the
 [Issues Page](https://github.com/htho/fzz2scad/issues).
 
 ## The Problem
